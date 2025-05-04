@@ -4,8 +4,10 @@ mod asteroid;
 mod camera;
 mod collision;
 mod input;
+mod particles;
 mod physics;
 mod ship;
+mod utils;
 //mod z_order;
 
 pub const SCREEN_SIZE: Vec2 = Vec2::new(1280.0, 720.0);
@@ -34,6 +36,7 @@ fn main() {
             camera::plugin,
             collision::plugin,
             input::plugin,
+            particles::plugin,
             physics::plugin,
             ship::plugin,
         ))

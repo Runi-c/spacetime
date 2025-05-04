@@ -3,11 +3,14 @@ use bevy::{
     prelude::*,
     render::mesh::{Indices, PrimitiveTopology},
 };
+use parry2d::query;
 
 use crate::{
     asteroid::Asteroid,
-    collision::Collider,
+    collision::{transform_to_isometry, Collider},
+    particles::SpawnParticles,
     physics::{Rotation, Velocity},
+    utils::parry2d_vec2,
 };
 
 pub fn plugin(app: &mut App) {
@@ -89,21 +92,36 @@ fn ship_input(
 pub fn ship_laser(
     time: Res<Time>,
     mut gizmos: Gizmos,
-    query: Query<&Transform, With<Ship>>,
+    ship: Query<(&Transform, &Collider), With<Ship>>,
     mut asteroids: Query<(&mut Asteroid, &Transform, &Collider)>,
+    mut particles: EventWriter<SpawnParticles>,
 ) {
-    for ship_transform in query.iter() {
-        for (mut asteroid, asteroid_transform, collider) in asteroids.iter_mut() {
+    for (ship_transform, ship_collider) in ship.iter() {
+        for (mut asteroid, asteroid_transform, asteroid_collider) in asteroids.iter_mut() {
             let distance = ship_transform
                 .translation
                 .distance(asteroid_transform.translation);
             if distance < 300.0 {
-                gizmos.line_2d(
-                    ship_transform.translation.truncate(),
-                    asteroid_transform.translation.truncate(),
-                    Color::WHITE,
-                );
-                asteroid.health -= time.delta_secs() * 25.0;
+                let contact = query::contact(
+                    &transform_to_isometry(ship_transform),
+                    &ship_collider.0,
+                    &transform_to_isometry(asteroid_transform),
+                    &asteroid_collider.0,
+                    distance,
+                )
+                .unwrap();
+                if let Some(contact) = contact {
+                    particles.write(SpawnParticles {
+                        position: parry2d_vec2(contact.point2),
+                        count: 1,
+                    });
+                    gizmos.line_2d(
+                        ship_transform.translation.truncate(),
+                        parry2d_vec2(contact.point2),
+                        Color::WHITE,
+                    );
+                    asteroid.health -= time.delta_secs() * 25.0;
+                }
             }
         }
     }

@@ -3,7 +3,7 @@ use bevy::prelude::*;
 use crate::SCREEN_SIZE;
 
 pub fn plugin(app: &mut App) {
-    app.add_systems(Update, physics_move);
+    app.add_systems(Update, (physics_move, physics_spin));
 }
 
 #[derive(Component)]
@@ -11,10 +11,9 @@ pub struct Velocity(pub Vec2);
 #[derive(Component)]
 pub struct Rotation(pub f32);
 
-fn physics_move(time: Res<Time>, mut query: Query<(&mut Transform, &Rotation, &Velocity)>) {
-    for (mut transform, rotation, velocity) in query.iter_mut() {
+fn physics_move(time: Res<Time>, mut query: Query<(&mut Transform, &Velocity)>) {
+    for (mut transform, velocity) in query.iter_mut() {
         transform.translation += velocity.0.extend(0.0) * time.delta_secs();
-        transform.rotation = Quat::from_rotation_z(rotation.0.to_radians());
 
         const WRAP_BUFFER: f32 = 40.0;
         const HALF_SCREEN_SIZE: Vec2 = Vec2::new(
@@ -31,5 +30,11 @@ fn physics_move(time: Res<Time>, mut query: Query<(&mut Transform, &Rotation, &V
         } else if transform.translation.y < -HALF_SCREEN_SIZE.y {
             transform.translation.y = HALF_SCREEN_SIZE.y;
         }
+    }
+}
+
+fn physics_spin(mut query: Query<(&mut Transform, &Rotation)>) {
+    for (mut transform, rotation) in query.iter_mut() {
+        transform.rotation = Quat::from_rotation_z(rotation.0.to_radians());
     }
 }
