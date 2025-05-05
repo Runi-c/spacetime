@@ -1,6 +1,8 @@
 use bevy::prelude::*;
 
-use crate::{dither::DitherMaterial, physics::Velocity, z_order::ZOrder};
+use crate::{dither::DitherMaterial, z_order::ZOrder};
+
+use super::physics::Velocity;
 
 pub fn plugin(app: &mut App) {
     app.add_systems(Update, (spawn_particles, tick_particles))

@@ -1,10 +1,13 @@
 use bevy::{
     prelude::*,
     render::render_resource::{AsBindGroup, ShaderRef},
-    sprite::Material2d,
+    sprite::{Material2d, Material2dPlugin},
 };
 
-// This struct defines the data that will be passed to your shader
+pub fn plugin(app: &mut App) {
+    app.add_plugins(Material2dPlugin::<DitherMaterial>::default());
+}
+
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone, Default)]
 pub struct DitherMaterial {
     #[uniform(0)]
@@ -15,8 +18,6 @@ pub struct DitherMaterial {
     pub dither_scale: f32,
 }
 
-/// The Material trait is very configurable, but comes with sensible defaults for all methods.
-/// You only need to implement functions for features that need non-default behavior. See the Material api docs for details!
 const SHADER_ASSET_PATH: &str = "shaders/dither.wgsl";
 impl Material2d for DitherMaterial {
     fn fragment_shader() -> ShaderRef {

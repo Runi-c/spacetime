@@ -4,13 +4,12 @@ use bevy::prelude::*;
 use lyon_tessellation::StrokeOptions;
 
 use crate::{
+    dither::DitherMaterial, layers::Layers, mesh::MeshLyonExtensions, z_order::ZOrder, SCREEN_SIZE,
+};
+
+use super::{
     collision::{Collider, CollisionEvent},
-    dither::DitherMaterial,
-    layers::Layers,
-    mesh::MeshLyonExtensions,
     physics::{Spin, Velocity},
-    z_order::ZOrder,
-    SCREEN_SIZE,
 };
 
 pub fn plugin(app: &mut App) {

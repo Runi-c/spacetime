@@ -1,15 +1,13 @@
 use bevy::prelude::*;
 use parry2d::query;
 
-use crate::{
+use crate::{layers::Layers, mesh::MeshLyonExtensions, utils::parry2d_vec2, z_order::ZOrder};
+
+use super::{
     asteroid::Asteroid,
     collision::{transform_to_isometry, Collider},
-    layers::Layers,
-    mesh::MeshLyonExtensions,
     particles::SpawnParticles,
     physics::{Rotation, Velocity},
-    utils::parry2d_vec2,
-    z_order::ZOrder,
 };
 
 pub fn plugin(app: &mut App) {

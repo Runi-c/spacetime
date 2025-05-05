@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::cameras::SpaceCamera;
+use super::camera::SpaceCamera;
 
 pub fn plugin(app: &mut App) {
     app.add_systems(Update, (physics_move, physics_rotation, physics_spin));

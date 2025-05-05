@@ -1,17 +1,9 @@
-use bevy::{prelude::*, sprite::Material2dPlugin, window::EnabledButtons};
-use dither::DitherMaterial;
+use bevy::{prelude::*, window::EnabledButtons};
 
-mod asteroid;
-mod cameras;
-mod collision;
 mod dither;
-mod grid;
-mod input;
+mod factory;
 mod layers;
 mod mesh;
-mod particles;
-mod physics;
-mod ship;
 mod space;
 mod utils;
 mod z_order;
@@ -37,18 +29,14 @@ fn main() {
                 })
                 .set(ImagePlugin::default_nearest()),
         )
-        .add_plugins(Material2dPlugin::<DitherMaterial>::default())
-        .add_plugins((
-            asteroid::plugin,
-            cameras::plugin,
-            collision::plugin,
-            grid::plugin,
-            input::plugin,
-            particles::plugin,
-            physics::plugin,
-            ship::plugin,
-            space::plugin,
-        ))
+        .add_plugins((dither::plugin, factory::plugin, space::plugin))
         .insert_resource(ClearColor(Color::srgb(0.0, 0.0, 0.0)))
+        .add_systems(Update, exit_on_esc)
         .run();
+}
+
+fn exit_on_esc(mut commands: Commands, keyboard_input: Res<ButtonInput<KeyCode>>) {
+    if keyboard_input.just_pressed(KeyCode::Escape) {
+        commands.send_event(AppExit::Success);
+    }
 }
