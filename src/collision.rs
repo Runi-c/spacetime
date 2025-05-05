@@ -14,13 +14,13 @@ pub fn plugin(app: &mut App) {
 pub struct Collider(pub Compound);
 
 impl Collider {
-    pub fn from_vertices(vertices: Vec<[f32; 3]>) -> Self {
+    pub fn from_vertices(vertices: &[Vec2]) -> Self {
         Self(
             Compound::decompose_trimesh(
                 &TriMesh::from_polygon(
                     vertices
                         .iter()
-                        .map(|v| parry2d::na::Point2::new(v[0], v[1]))
+                        .map(|v| parry2d::na::Point2::new(v.x, v.y))
                         .collect(),
                 )
                 .unwrap(),
@@ -57,11 +57,6 @@ fn do_collision(
                 )
                 .unwrap();
                 if let Some(contact) = contact.filter(|c| c.dist <= 0.0) {
-                    info!(
-                        "Collision detected between {:?} and {:?}",
-                        entity_a, entity_b
-                    );
-                    info!("Contact: {:?}", contact);
                     writer.write(CollisionEvent {
                         entity_a,
                         entity_b,

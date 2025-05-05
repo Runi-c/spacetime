@@ -1,13 +1,10 @@
-use bevy::{
-    asset::RenderAssetUsages,
-    prelude::*,
-    render::mesh::{Indices, PrimitiveTopology},
-};
+use bevy::prelude::*;
 use parry2d::query;
 
 use crate::{
     asteroid::Asteroid,
     collision::{transform_to_isometry, Collider},
+    mesh::fill_polygon,
     particles::SpawnParticles,
     physics::{Rotation, Velocity},
     utils::parry2d_vec2,
@@ -26,27 +23,20 @@ fn spawn_ship(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    let mut ship = Mesh::new(
-        PrimitiveTopology::TriangleList,
-        RenderAssetUsages::RENDER_WORLD,
-    );
-
+    const SIZE: f32 = 30.0;
     let vertices = vec![
-        [50.0, 0.0, 0.0],
-        [-50.0, 25.0, 0.0],
-        [-35.0, 0.0, 0.0],
-        [-50.0, -25.0, 0.0],
+        vec2(SIZE, 0.0),
+        vec2(-SIZE, SIZE * 0.7),
+        vec2(-SIZE * 0.5, 0.0),
+        vec2(-SIZE, -SIZE * 0.7),
     ];
-    let indices = vec![0, 1, 2, 0, 2, 3];
-    ship.insert_attribute(Mesh::ATTRIBUTE_POSITION, vertices.clone());
-    ship.insert_indices(Indices::U32(indices));
 
-    let mesh = meshes.add(ship);
+    let mesh = meshes.add(fill_polygon(&vertices));
     commands.spawn((
         Ship,
         Mesh2d(mesh),
         MeshMaterial2d(materials.add(ColorMaterial::from(Color::WHITE))),
-        Collider::from_vertices(vertices),
+        Collider::from_vertices(&vertices),
         Transform::from_xyz(0.0, 0.0, 0.0),
         Velocity(Vec2::ZERO),
         Rotation(0.0),
@@ -111,10 +101,12 @@ pub fn ship_laser(
                 )
                 .unwrap();
                 if let Some(contact) = contact {
-                    particles.write(SpawnParticles {
-                        position: parry2d_vec2(contact.point2),
-                        count: 1,
-                    });
+                    if rand::random_bool(0.1) {
+                        particles.write(SpawnParticles {
+                            position: parry2d_vec2(contact.point2),
+                            count: 1,
+                        });
+                    }
                     gizmos.line_2d(
                         ship_transform.translation.truncate(),
                         parry2d_vec2(contact.point2),

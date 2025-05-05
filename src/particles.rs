@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::physics::Velocity;
+use crate::{dither::DitherMaterial, physics::Velocity};
 
 pub fn plugin(app: &mut App) {
     app.add_systems(Update, (spawn_particles, tick_particles))
@@ -21,7 +21,7 @@ pub fn spawn_particles(
     mut commands: Commands,
     mut reader: EventReader<SpawnParticles>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut materials: ResMut<Assets<DitherMaterial>>,
 ) {
     for event in reader.read() {
         for _ in 0..event.count {
@@ -35,9 +35,14 @@ pub fn spawn_particles(
                         rand::random::<f32>() * 2.0 - 1.0,
                     )
                     .normalize()
+                        * rand::random::<f32>()
                         * 100.0,
                 ),
-                MeshMaterial2d(materials.add(ColorMaterial::from(Color::WHITE))),
+                MeshMaterial2d(materials.add(DitherMaterial {
+                    fill: 0.5,
+                    dither_scale: 0.01,
+                    ..default()
+                })),
             ));
         }
     }

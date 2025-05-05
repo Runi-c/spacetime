@@ -1,9 +1,12 @@
-use bevy::{prelude::*, window::EnabledButtons};
+use bevy::{prelude::*, sprite::Material2dPlugin, window::EnabledButtons};
+use dither::DitherMaterial;
 
 mod asteroid;
 mod camera;
 mod collision;
+mod dither;
 mod input;
+mod mesh;
 mod particles;
 mod physics;
 mod ship;
@@ -31,6 +34,7 @@ fn main() {
                 })
                 .set(ImagePlugin::default_nearest()),
         )
+        .add_plugins(Material2dPlugin::<DitherMaterial>::default())
         .add_plugins((
             asteroid::plugin,
             camera::plugin,
