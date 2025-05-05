@@ -1,19 +1,24 @@
 use bevy::prelude::*;
 
+use crate::cameras::SpaceCamera;
+
 pub fn plugin(app: &mut App) {
     app.add_systems(Update, (physics_move, physics_rotation, physics_spin));
 }
 
 #[derive(Component)]
 pub struct Velocity(pub Vec2);
+
 #[derive(Component)]
 pub struct Rotation(pub f32);
+
 #[derive(Component)]
+#[require(Rotation(0.0))]
 pub struct Spin(pub f32);
 
 fn physics_move(
     time: Res<Time>,
-    camera: Query<(&Camera, &Projection)>,
+    camera: Query<(&Camera, &Projection), With<SpaceCamera>>,
     mut query: Query<(&mut Transform, &Velocity)>,
 ) {
     let (camera, projection) = camera.single().unwrap();

@@ -1,12 +1,15 @@
 use std::time::Duration;
 
 use bevy::prelude::*;
+use lyon_tessellation::StrokeOptions;
 
 use crate::{
     collision::{Collider, CollisionEvent},
     dither::DitherMaterial,
-    mesh::{fill_polygon, stroke_polygon},
-    physics::{Rotation, Spin, Velocity},
+    layers::Layers,
+    mesh::MeshLyonExtensions,
+    physics::{Spin, Velocity},
+    z_order::ZOrder,
     SCREEN_SIZE,
 };
 
@@ -29,7 +32,7 @@ pub struct Asteroid {
 
 fn asteroid_timer(mut commands: Commands, time: Res<Time>, mut timer: Local<Option<Timer>>) {
     let timer =
-        timer.get_or_insert_with(|| Timer::new(Duration::from_secs_f32(0.5), TimerMode::Repeating));
+        timer.get_or_insert_with(|| Timer::new(Duration::from_secs_f32(1.5), TimerMode::Repeating));
     if timer.tick(time.delta()).just_finished() {
         commands.run_system_cached(spawn_asteroid);
     }
@@ -49,7 +52,6 @@ fn spawn_asteroid(
         let y = angle.sin() * radius;
         vertices.push(vec2(x, y));
     }
-    let mesh = fill_polygon(&vertices);
     let pos = match rand::random_range(0..=3) {
         0 => Vec2::new(
             -SCREEN_SIZE.x / 2.0,
@@ -72,22 +74,25 @@ fn spawn_asteroid(
     commands
         .spawn((
             Asteroid { health: 100.0 },
-            Mesh2d(meshes.add(stroke_polygon(&vertices, 5.0))),
+            Layers::SPACE,
+            Mesh2d(meshes.add(Mesh::stroke_polygon(
+                &vertices,
+                &StrokeOptions::default().with_line_width(5.0),
+            ))),
             MeshMaterial2d(materials.add(DitherMaterial {
                 fill: 1.0,
                 ..default()
             })),
             Collider::from_vertices(&vertices),
-            Transform::from_xyz(pos.x, pos.y, 0.0),
+            Transform::from_xyz(pos.x, pos.y, ZOrder::ASTEROID),
             Velocity(Vec2::new(
                 rand::random_range(-100.0..=100.0),
                 rand::random_range(-100.0..=100.0),
             )),
-            Rotation(0.0),
             Spin(rand::random_range(0.0..=20.0)),
         ))
         .with_child((
-            Mesh2d(meshes.add(fill_polygon(&vertices))),
+            Mesh2d(meshes.add(Mesh::fill_polygon(&vertices))),
             MeshMaterial2d(materials.add(DitherMaterial {
                 fill: 0.9,
                 dither_type: 0,

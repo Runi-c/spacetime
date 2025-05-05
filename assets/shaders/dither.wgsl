@@ -10,8 +10,10 @@ const BAYER_DITHER: mat4x4<f32> = mat4x4(
     15.0, 7.0, 13.0, 5.0
 ) / 16.0;
 
-fn random(c: vec2f) -> f32 {
-  return fract(sin(dot(c.xy, vec2(12.9898, 78.233))) * 43758.5453);
+fn random(p: vec2f) -> f32 {
+  var p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
 }
 
 @group(2) @binding(0) var<uniform> fill: f32;

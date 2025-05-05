@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::{dither::DitherMaterial, physics::Velocity};
+use crate::{dither::DitherMaterial, physics::Velocity, z_order::ZOrder};
 
 pub fn plugin(app: &mut App) {
     app.add_systems(Update, (spawn_particles, tick_particles))
@@ -23,12 +23,15 @@ pub fn spawn_particles(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<DitherMaterial>>,
 ) {
+    let mesh = meshes.add(Circle::new(10.0));
     for event in reader.read() {
         for _ in 0..event.count {
             commands.spawn((
                 Particle { lifetime: 1.0 },
-                Transform::from_translation(event.position.extend(0.0)),
-                Mesh2d(meshes.add(Circle::new(10.0))),
+                Transform::from_translation(event.position.extend(ZOrder::BULLET)).with_rotation(
+                    Quat::from_rotation_z(rand::random::<f32>() * std::f32::consts::TAU),
+                ),
+                Mesh2d(mesh.clone()),
                 Velocity(
                     Vec2::new(
                         rand::random::<f32>() * 2.0 - 1.0,
@@ -39,8 +42,8 @@ pub fn spawn_particles(
                         * 100.0,
                 ),
                 MeshMaterial2d(materials.add(DitherMaterial {
-                    fill: 0.5,
-                    dither_scale: 0.01,
+                    fill: rand::random::<f32>() * 0.3 + 0.4,
+                    dither_scale: 0.1,
                     ..default()
                 })),
             ));

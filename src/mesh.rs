@@ -7,48 +7,79 @@ use lyon_tessellation::{
     self,
     geom::euclid::{Point2D, UnknownUnit},
     geometry_builder::simple_builder,
-    path::Polygon,
-    FillOptions, FillTessellator, StrokeOptions, StrokeTessellator, VertexBuffers,
+    path::{builder::NoAttributes, Polygon},
+    FillBuilder, FillOptions, FillTessellator, StrokeBuilder, StrokeOptions, StrokeTessellator,
+    VertexBuffers,
 };
 
-pub fn fill_polygon(points: &[Vec2]) -> Mesh {
-    let mut geometry = VertexBuffers::new();
-    let mut builder = simple_builder(&mut geometry);
-    let mut tessellator = FillTessellator::new();
-    let options = FillOptions::default();
-    let mut builder = tessellator.builder(&options, &mut builder);
-
-    let points = points
-        .iter()
-        .map(|p| Point2D::new(p.x, p.y))
-        .collect::<Vec<_>>();
-    builder.add_polygon(Polygon {
-        points: &points,
-        closed: true,
-    });
-    builder.build().unwrap();
-
-    mesh_from_buffers(geometry)
+pub trait MeshLyonExtensions {
+    fn fill_with(func: impl FnOnce(&mut NoAttributes<FillBuilder<'_>>)) -> Self;
+    fn fill_polygon(points: &[Vec2]) -> Self;
+    fn stroke_with(
+        func: impl FnOnce(&mut NoAttributes<StrokeBuilder<'_>>),
+        options: &StrokeOptions,
+    ) -> Self;
+    fn stroke_polygon(points: &[Vec2], options: &StrokeOptions) -> Self;
 }
+impl MeshLyonExtensions for Mesh {
+    fn fill_with(func: impl FnOnce(&mut NoAttributes<FillBuilder<'_>>)) -> Self {
+        let mut geometry = VertexBuffers::new();
+        let mut builder = simple_builder(&mut geometry);
+        let mut tessellator = FillTessellator::new();
+        let options = FillOptions::default();
+        let mut builder: lyon_tessellation::path::builder::NoAttributes<
+            lyon_tessellation::FillBuilder<'_>,
+        > = tessellator.builder(&options, &mut builder);
 
-pub fn stroke_polygon(points: &[Vec2], width: f32) -> Mesh {
-    let mut geometry = VertexBuffers::new();
-    let mut builder = simple_builder(&mut geometry);
-    let mut tessellator = StrokeTessellator::new();
-    let options = StrokeOptions::default().with_line_width(width);
-    let mut builder = tessellator.builder(&options, &mut builder);
+        func(&mut builder);
 
-    let points = points
-        .iter()
-        .map(|p| Point2D::new(p.x, p.y))
-        .collect::<Vec<_>>();
-    builder.add_polygon(Polygon {
-        points: &points,
-        closed: true,
-    });
-    builder.build().unwrap();
+        builder.build().unwrap();
 
-    mesh_from_buffers(geometry)
+        mesh_from_buffers(geometry)
+    }
+    fn fill_polygon(points: &[Vec2]) -> Self {
+        Self::fill_with(|builder| {
+            let points = points
+                .iter()
+                .map(|p| Point2D::new(p.x, p.y))
+                .collect::<Vec<_>>();
+            builder.add_polygon(Polygon {
+                points: &points,
+                closed: true,
+            });
+        })
+    }
+
+    fn stroke_with(
+        func: impl FnOnce(&mut NoAttributes<StrokeBuilder<'_>>),
+        options: &StrokeOptions,
+    ) -> Self {
+        let mut geometry = VertexBuffers::new();
+        let mut builder = simple_builder(&mut geometry);
+        let mut tessellator = StrokeTessellator::new();
+        let mut builder = tessellator.builder(&options, &mut builder);
+
+        func(&mut builder);
+
+        builder.build().unwrap();
+
+        mesh_from_buffers(geometry)
+    }
+    fn stroke_polygon(points: &[Vec2], options: &StrokeOptions) -> Self {
+        Self::stroke_with(
+            |builder| {
+                let points = points
+                    .iter()
+                    .map(|p| Point2D::new(p.x, p.y))
+                    .collect::<Vec<_>>();
+                builder.add_polygon(Polygon {
+                    points: &points,
+                    closed: true,
+                });
+            },
+            options,
+        )
+    }
 }
 
 fn mesh_from_buffers(buffers: VertexBuffers<Point2D<f32, UnknownUnit>, u16>) -> Mesh {

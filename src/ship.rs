@@ -4,10 +4,12 @@ use parry2d::query;
 use crate::{
     asteroid::Asteroid,
     collision::{transform_to_isometry, Collider},
-    mesh::fill_polygon,
+    layers::Layers,
+    mesh::MeshLyonExtensions,
     particles::SpawnParticles,
     physics::{Rotation, Velocity},
     utils::parry2d_vec2,
+    z_order::ZOrder,
 };
 
 pub fn plugin(app: &mut App) {
@@ -31,13 +33,14 @@ fn spawn_ship(
         vec2(-SIZE, -SIZE * 0.7),
     ];
 
-    let mesh = meshes.add(fill_polygon(&vertices));
+    let mesh = meshes.add(Mesh::fill_polygon(&vertices));
     commands.spawn((
         Ship,
+        Layers::SPACE,
         Mesh2d(mesh),
         MeshMaterial2d(materials.add(ColorMaterial::from(Color::WHITE))),
         Collider::from_vertices(&vertices),
-        Transform::from_xyz(0.0, 0.0, 0.0),
+        Transform::from_xyz(0.0, 0.0, ZOrder::SHIP),
         Velocity(Vec2::ZERO),
         Rotation(0.0),
     ));
