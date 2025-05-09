@@ -5,8 +5,10 @@ use parry2d::{
     shape::{Compound, TriMesh},
 };
 
+use crate::scheduling::Sets;
+
 pub fn plugin(app: &mut App) {
-    app.add_systems(Update, do_collision)
+    app.add_systems(Update, do_collision.in_set(Sets::Collision))
         .add_event::<CollisionEvent>();
 }
 

@@ -1,7 +1,19 @@
-use bevy::render::view::RenderLayers;
+use bevy::{ecs::component::Component, render::view::RenderLayers};
 
-pub struct Layers;
-impl Layers {
-    pub const SPACE: RenderLayers = RenderLayers::layer(0);
-    pub const FACTORY: RenderLayers = RenderLayers::layer(1);
+trait LayersExt {
+    const SPACE: RenderLayers;
+    const FACTORY: RenderLayers;
 }
+
+impl LayersExt for RenderLayers {
+    const SPACE: RenderLayers = RenderLayers::layer(0);
+    const FACTORY: RenderLayers = RenderLayers::layer(1);
+}
+
+#[derive(Component)]
+#[require(RenderLayers::SPACE)]
+pub struct SpaceLayer;
+
+#[derive(Component)]
+#[require(RenderLayers::FACTORY)]
+pub struct FactoryLayer;

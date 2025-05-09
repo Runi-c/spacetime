@@ -7,7 +7,5 @@ impl ZOrder {
     pub const SHIP: f32 = 10.0;
 
     pub const TILE: f32 = 5.0;
-    pub const PIPE: f32 = 6.0;
-
-    pub const UI: f32 = 20.0;
+    pub const MACHINE: f32 = 10.0;
 }

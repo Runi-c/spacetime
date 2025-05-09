@@ -6,6 +6,7 @@ mod camera;
 mod collision;
 mod particles;
 mod physics;
+mod pickup;
 mod ship;
 
 pub fn plugin(app: &mut App) {
@@ -16,6 +17,7 @@ pub fn plugin(app: &mut App) {
         collision::plugin,
         particles::plugin,
         physics::plugin,
+        pickup::plugin,
         ship::plugin,
     ));
 }

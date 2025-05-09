@@ -1,9 +1,9 @@
-use bevy::{prelude::*, render::camera::Viewport};
+use bevy::prelude::*;
 
-use crate::{layers::Layers, SCREEN_SIZE};
+use crate::{layers::FactoryLayer, scheduling::Sets, SCREEN_SIZE};
 
 pub fn plugin(app: &mut App) {
-    app.add_systems(Startup, setup_camera);
+    app.add_systems(Startup, setup_camera.in_set(Sets::Spawn));
 }
 
 #[derive(Component)]
@@ -12,17 +12,14 @@ pub struct FactoryCamera;
 
 fn setup_camera(mut commands: Commands) {
     commands.spawn((
+        Name::new("Factory Camera"),
         FactoryCamera,
-        Layers::FACTORY,
+        FactoryLayer,
         Camera {
-            order: 1,
-            viewport: Some(Viewport {
-                physical_position: uvec2((SCREEN_SIZE.x / 2.0) as u32, 0),
-                physical_size: uvec2((SCREEN_SIZE.x / 2.0) as u32, SCREEN_SIZE.y as u32),
-                ..default()
-            }),
+            order: 0,
             ..default()
         },
-        Transform::from_xyz(0.0, 0.0, -100.0),
+        IsDefaultUiCamera,
+        Transform::from_xyz(-SCREEN_SIZE.x / 4.0, 0.0, -100.0),
     ));
 }

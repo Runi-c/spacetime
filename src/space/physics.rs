@@ -1,20 +1,58 @@
+use std::{
+    f32::consts::{PI, TAU},
+    ops::Range,
+};
+
 use bevy::prelude::*;
+
+use crate::scheduling::Sets;
 
 use super::camera::SpaceCamera;
 
 pub fn plugin(app: &mut App) {
-    app.add_systems(Update, (physics_move, physics_rotation, physics_spin));
+    app.add_systems(
+        Update,
+        (
+            (physics_move, physics_spin).in_set(Sets::Physics),
+            physics_rotation.in_set(Sets::PostUpdate),
+        ),
+    );
 }
 
 #[derive(Component)]
 pub struct Velocity(pub Vec2);
 
+impl Velocity {
+    pub fn random(speed: Range<f32>) -> Self {
+        Self(
+            Vec2::new(
+                rand::random::<f32>() * 2.0 - 1.0,
+                rand::random::<f32>() * 2.0 - 1.0,
+            )
+            .normalize()
+                * rand::random_range(speed),
+        )
+    }
+}
+
 #[derive(Component)]
 pub struct Rotation(pub f32);
+
+impl Rotation {
+    pub fn random() -> Self {
+        Self(rand::random::<f32>() * TAU)
+    }
+}
 
 #[derive(Component)]
 #[require(Rotation(0.0))]
 pub struct Spin(pub f32);
+
+impl Spin {
+    pub fn random() -> Self {
+        Self(rand::random::<f32>() * TAU - PI)
+    }
+}
 
 fn physics_move(
     time: Res<Time>,

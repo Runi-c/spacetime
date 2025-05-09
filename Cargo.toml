@@ -10,8 +10,10 @@ bevy = { version = "0.16.0-rc.3", features = [
     "dynamic_linking",
     "file_watcher",
 ] }
+bevy-inspector-egui = { git = "https://github.com/slyedoc/bevy-inspector-egui", branch = "bevy_0.16" }
 bevy_asset_loader = "0.23.0-rc.1"
 bevy_enhanced_input = "0.10.0-rc.3"
+bitflags = "2.9.0"
 log = { version = "*", features = [
     "max_level_debug",
     "release_max_level_warn",

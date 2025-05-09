@@ -1,12 +1,22 @@
 use bevy::prelude::*;
 
-use crate::{dither::DitherMaterial, z_order::ZOrder};
+use crate::{
+    layers::SpaceLayer,
+    materials::{Dither, DitherMaterial},
+    scheduling::Sets,
+    z_order::ZOrder,
+};
 
-use super::physics::Velocity;
+use super::physics::{Rotation, Velocity};
 
 pub fn plugin(app: &mut App) {
-    app.add_systems(Update, (spawn_particles, tick_particles))
-        .add_event::<SpawnParticles>();
+    app.add_event::<SpawnParticles>().add_systems(
+        Update,
+        (
+            spawn_particles.in_set(Sets::Update),
+            tick_particles.in_set(Sets::PostUpdate),
+        ),
+    );
 }
 
 #[derive(Component)]
@@ -29,23 +39,16 @@ pub fn spawn_particles(
     for event in reader.read() {
         for _ in 0..event.count {
             commands.spawn((
+                Name::new("Particle"),
                 Particle { lifetime: 1.0 },
-                Transform::from_translation(event.position.extend(ZOrder::BULLET)).with_rotation(
-                    Quat::from_rotation_z(rand::random::<f32>() * std::f32::consts::TAU),
-                ),
+                SpaceLayer,
+                Transform::from_translation(event.position.extend(ZOrder::BULLET)),
                 Mesh2d(mesh.clone()),
-                Velocity(
-                    Vec2::new(
-                        rand::random::<f32>() * 2.0 - 1.0,
-                        rand::random::<f32>() * 2.0 - 1.0,
-                    )
-                    .normalize()
-                        * rand::random::<f32>()
-                        * 100.0,
-                ),
-                MeshMaterial2d(materials.add(DitherMaterial {
+                Velocity::random(0.0..100.0),
+                Rotation::random(),
+                MeshMaterial2d(materials.add(Dither {
                     fill: rand::random::<f32>() * 0.3 + 0.4,
-                    dither_scale: 0.1,
+                    scale: 0.1,
                     ..default()
                 })),
             ));

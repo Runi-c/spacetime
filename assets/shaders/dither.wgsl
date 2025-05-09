@@ -16,24 +16,43 @@ fn random(p: vec2f) -> f32 {
   return fract((p3.x + p3.y) * p3.z);
 }
 
-@group(2) @binding(0) var<uniform> fill: f32;
-@group(2) @binding(1) var<uniform> dither_type: u32;
-@group(2) @binding(2) var<uniform> dither_scale: f32;
+struct Settings {
+    offset: vec2f,
+    fill: f32,
+    flags: u32,
+    scale: f32,
+    padding: vec3f,
+}
+
+@group(2) @binding(0) var<uniform> settings: Settings;
 
 @fragment
 fn fragment(
     mesh: VertexOutput,
 ) -> @location(0) vec4<f32> {
-    let resolution = view.viewport.zw;
-    var uv = mesh.uv.xy * resolution * dither_scale; // Convert from [0, 1] to [-1, 1]
-    uv.x *= resolution.y / resolution.x; // Adjust for aspect ratio
-    //uv /= resolution.xy;
+    var uv = vec2f(0.0);
+    if((settings.flags & 0x1) != 0) {
+        uv = mesh.position.xy; // Use the mesh position directly
+    } else {
+        let resolution = view.viewport.zw;
+        uv = mesh.uv.xy * resolution * settings.scale; // Convert from [0, 1] to [-1, 1]
+        uv.x *= resolution.y / resolution.x; // Adjust for aspect ratio
+    }
 
-    //if(true) {return vec4<f32>(uv.x, uv.y, 0.0, 1.0);}
-    //let dither = BAYER_DITHER[u32(uv.y) % 4][u32(uv.x) % 4];
-    let dither = random(round(uv));
-    if(dither <= fill) {
+
+    var dither = 0.0;
+    if((settings.flags & 0x2) != 0) {
+        dither = BAYER_DITHER[u32(uv.y) % 4][u32(uv.x) % 4];
+    } else {
+        dither = random(floor(uv + settings.offset));
+    }
+
+    if(dither <= settings.fill) {
         return vec4(1.0);
     }
-    return vec4(vec3(0.0), 1.0);
+    var alpha = 1.0;
+    if((settings.flags & 0x4) != 0) {
+        alpha = 0.0;
+    }
+    return vec4(vec3(0.0), alpha);
 }

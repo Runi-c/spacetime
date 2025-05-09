@@ -1,7 +1,10 @@
 use bevy::prelude::*;
 use parry2d::query;
 
-use crate::{layers::Layers, mesh::MeshLyonExtensions, utils::parry2d_vec2, z_order::ZOrder};
+use crate::{
+    layers::SpaceLayer, materials::SOLID_WHITE, mesh::MeshLyonExtensions, scheduling::Sets,
+    utils::parry2d_vec2, z_order::ZOrder,
+};
 
 use super::{
     asteroid::Asteroid,
@@ -11,18 +14,20 @@ use super::{
 };
 
 pub fn plugin(app: &mut App) {
-    app.add_systems(Startup, spawn_ship)
-        .add_systems(Update, (ship_input, ship_laser));
+    app.add_systems(Startup, spawn_ship.in_set(Sets::Spawn))
+        .add_systems(
+            Update,
+            (
+                ship_input.in_set(Sets::Input),
+                ship_laser.in_set(Sets::Update),
+            ),
+        );
 }
 
 #[derive(Component)]
 pub struct Ship;
 
-fn spawn_ship(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-) {
+fn spawn_ship(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>) {
     const SIZE: f32 = 30.0;
     let vertices = vec![
         vec2(SIZE, 0.0),
@@ -33,10 +38,11 @@ fn spawn_ship(
 
     let mesh = meshes.add(Mesh::fill_polygon(&vertices));
     commands.spawn((
+        Name::new("Ship"),
         Ship,
-        Layers::SPACE,
+        SpaceLayer,
         Mesh2d(mesh),
-        MeshMaterial2d(materials.add(ColorMaterial::from(Color::WHITE))),
+        MeshMaterial2d(SOLID_WHITE),
         Collider::from_vertices(&vertices),
         Transform::from_xyz(0.0, 0.0, ZOrder::SHIP),
         Velocity(Vec2::ZERO),
@@ -84,14 +90,24 @@ pub fn ship_laser(
     time: Res<Time>,
     mut gizmos: Gizmos,
     ship: Query<(&Transform, &Collider), With<Ship>>,
-    mut asteroids: Query<(&mut Asteroid, &Transform, &Collider)>,
+    mut asteroids: Query<(Entity, &mut Asteroid, &Transform, &Collider)>,
     mut particles: EventWriter<SpawnParticles>,
 ) {
     for (ship_transform, ship_collider) in ship.iter() {
-        for (mut asteroid, asteroid_transform, asteroid_collider) in asteroids.iter_mut() {
-            let distance = ship_transform
-                .translation
-                .distance(asteroid_transform.translation);
+        let closest = asteroids.iter().fold(
+            None,
+            |closest: Option<(f32, Entity)>, (entity, _, transform, _)| {
+                let distance = ship_transform.translation.distance(transform.translation);
+                if closest.is_none() || distance < closest.unwrap().0 {
+                    Some((distance, entity))
+                } else {
+                    closest
+                }
+            },
+        );
+        if let Some((distance, asteroid_entity)) = closest {
+            let (_, mut asteroid, asteroid_transform, asteroid_collider) =
+                asteroids.get_mut(asteroid_entity).unwrap();
             if distance < 300.0 {
                 let contact = query::contact(
                     &transform_to_isometry(ship_transform),
