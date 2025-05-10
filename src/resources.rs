@@ -4,7 +4,7 @@ pub fn plugin(app: &mut App) {
     app.init_resource::<Resources>();
 }
 
-#[derive(Component, Clone, Copy, Debug)]
+#[derive(Reflect, Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ResourceType {
     Mineral,
     Gas,
@@ -23,12 +23,23 @@ impl ResourceType {
     }
 }
 
-#[derive(Resource, Default, Debug)]
+#[derive(Resource, Debug)]
 pub struct Resources {
     pub minerals: f32,
     pub gas: f32,
     pub time: f32,
     pub ammo: f32,
+}
+
+impl Default for Resources {
+    fn default() -> Self {
+        Self {
+            minerals: 10.0,
+            gas: 0.0,
+            time: 0.0,
+            ammo: 5.0,
+        }
+    }
 }
 
 impl Resources {
@@ -37,7 +48,16 @@ impl Resources {
             ResourceType::Mineral => self.minerals,
             ResourceType::Gas => self.gas,
             ResourceType::Time => self.time,
-            _ => 0.0,
+            ResourceType::Ammo => self.ammo,
+        }
+    }
+
+    pub fn add(&mut self, resource: ResourceType, amount: f32) {
+        match resource {
+            ResourceType::Mineral => self.minerals += amount,
+            ResourceType::Gas => self.gas += amount,
+            ResourceType::Time => self.time += amount,
+            ResourceType::Ammo => self.ammo += amount,
         }
     }
 }

@@ -41,7 +41,7 @@ fn spawn_tooltip(mut commands: Commands) {
             Node::default(),
             Text("".to_string()),
             Visibility::Inherited,
-            ChildOf { parent: container },
+            ChildOf(container),
         ))
         .id();
     let description = commands
@@ -51,7 +51,7 @@ fn spawn_tooltip(mut commands: Commands) {
             Text("".to_string()),
             TextFont::from_font_size(12.0),
             Visibility::Inherited,
-            ChildOf { parent: container },
+            ChildOf(container),
         ))
         .id();
     commands.insert_resource(ActiveTooltip {
@@ -61,9 +61,13 @@ fn spawn_tooltip(mut commands: Commands) {
     });
 }
 
-fn observe_tooltips(mut commands: Commands, tooltip_query: Query<Entity, Added<Tooltip>>) {
+fn observe_tooltips(
+    mut commands: Commands,
+    tooltip_query: Query<Entity, Added<Tooltip>>,
+    names: Query<&Name>,
+) {
     for entity in tooltip_query.iter() {
-        info!("Tooltip entity: {:?}", entity);
+        info!("Tooltip entity: {:?}", names.get(entity));
         commands
             .entity(entity)
             .observe(update_tooltip)

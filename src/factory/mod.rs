@@ -9,6 +9,8 @@ mod time;
 mod tooltip;
 mod ui;
 
+pub use grid::{setup_grid, Grid};
+
 pub fn plugin(app: &mut App) {
     app.add_plugins((
         camera::plugin,

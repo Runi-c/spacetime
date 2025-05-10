@@ -1,11 +1,13 @@
-use bevy::{prelude::*, window::EnabledButtons};
+use bevy::{asset::AssetMetaCheck, prelude::*, window::EnabledButtons};
 
+mod camera;
 mod factory;
 mod layers;
 mod materials;
 mod mesh;
 mod resources;
 mod scheduling;
+mod sounds;
 mod space;
 mod utils;
 mod z_order;
@@ -18,7 +20,7 @@ fn main() {
             DefaultPlugins
                 .set(WindowPlugin {
                     primary_window: Some(Window {
-                        title: "Space/Time".to_string(),
+                        title: "Space|Time".to_string(),
                         resizable: false,
                         resolution: SCREEN_SIZE.into(),
                         enabled_buttons: EnabledButtons {
@@ -29,14 +31,20 @@ fn main() {
                     }),
                     ..default()
                 })
-                .set(ImagePlugin::default_nearest()),
+                .set(ImagePlugin::default_nearest())
+                .set(AssetPlugin {
+                    meta_check: AssetMetaCheck::Never,
+                    ..default()
+                }),
         )
         .add_plugins(MeshPickingPlugin)
         .add_plugins((
             materials::plugin,
             factory::plugin,
+            camera::plugin,
             resources::plugin,
             scheduling::plugin,
+            sounds::plugin,
             space::plugin,
             z_order::plugin,
         ))

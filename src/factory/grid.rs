@@ -97,7 +97,7 @@ fn apply_coords(mut query: Query<(&TileCoords, &mut Transform), Changed<TileCoor
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Reflect, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Direction {
     Right,
     Up,
@@ -149,7 +149,7 @@ impl Direction {
     }
 }
 
-fn setup_grid(
+pub fn setup_grid(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<DitherMaterial>>,
@@ -208,7 +208,7 @@ fn setup_grid(
                 ));
                 buildings[y as usize * GRID_SIZE + 0] = Some(inlet.id());
             }
-            for y in [3, 6] {
+            /*             for y in [3, 6] {
                 let inlet = parent.spawn((
                     Name::new("Gas Inlet"),
                     Tooltip(
@@ -227,7 +227,7 @@ fn setup_grid(
                     ),
                 ));
                 buildings[y as usize * GRID_SIZE + GRID_SIZE - 1] = Some(inlet.id());
-            }
+            } */
             for x in [3, 6] {
                 let outlet = parent.spawn((
                     Name::new("Ammo Outlet"),

@@ -11,6 +11,8 @@ mod physics;
 mod pickup;
 mod ship;
 
+pub use ship::Ship;
+
 pub fn plugin(app: &mut App) {
     app.add_plugins((
         asteroid::plugin,

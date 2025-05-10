@@ -6,15 +6,23 @@ use lyon_tessellation::{
 
 use crate::{
     layers::FactoryLayer,
-    materials::{DitherMaterial, MetalDither, SOLID_WHITE},
+    materials::{DitherMaterial, MetalDither, SOLID_BLACK, SOLID_WHITE},
     mesh::MeshLyonExtensions,
-    resources::ResourceType,
+    resources::{ResourceType, Resources},
+    scheduling::Sets,
+    space::Ship,
     z_order::ZOrder,
 };
 
 use super::{
-    grid::{Direction, TileCoords, TILE_SIZE},
-    pipe::pipe_bridge,
+    grid::{Direction, Grid, TileCoords, TILE_SIZE},
+    pipe::{
+        pipe_bridge, pipe_bundle, InNetwork, InvalidateNetworks, Pipe, PipeFlowMaterial,
+        PipeNetwork,
+    },
+    shop::ShopItem,
+    time::FactoryTick,
+    tooltip::Tooltip,
 };
 
 pub const INLET_MESH: Handle<Mesh> = weak_handle!("00197959-e60b-4cad-baff-c1af5262890b");
@@ -57,18 +65,33 @@ pub fn plugin(app: &mut App) {
             );
         }),
     );
+
+    app.add_systems(
+        Update,
+        (
+            (
+                fill_inlet,
+                fill_outlet,
+                tick_ammo_factory,
+                tick_hull_fixer,
+                tick_pipe_switch,
+            )
+                .in_set(Sets::Update),
+            (color_inlet, observe_pipe_switches).in_set(Sets::PostUpdate),
+        ),
+    );
 }
 
 #[derive(Component, Clone, Default)]
 pub struct Machine;
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Reflect, Clone, PartialEq, Eq, Debug)]
 pub enum FlowDirection {
     Inlet,
     Outlet,
 }
 
-#[derive(Component, Clone)]
+#[derive(Reflect, Component, Clone, Debug)]
 pub struct MachinePort {
     pub side: Direction,
     pub flow: FlowDirection,
@@ -87,6 +110,7 @@ pub fn inlet(
 ) -> impl Bundle {
     (
         Inlet(resource),
+        Buffer(resource, 0.0),
         FactoryLayer,
         Mesh2d(INLET_MESH),
         MeshMaterial2d(SOLID_WHITE),
@@ -123,7 +147,7 @@ pub fn outlet(
     flow_material: Handle<DitherMaterial>,
 ) -> impl Bundle {
     (
-        Inlet(resource),
+        Outlet(resource),
         FactoryLayer,
         Mesh2d(INLET_MESH),
         MeshMaterial2d(SOLID_WHITE),
@@ -148,27 +172,84 @@ pub fn outlet(
     )
 }
 
-pub fn test_machine(
+fn fill_inlet(mut inlets: Query<(&mut Buffer, &Inlet)>, mut resources: ResMut<Resources>) {
+    for (mut buffer, inlet) in inlets.iter_mut() {
+        if resources.get(inlet.0) >= 1.0 && buffer.1 < 10.0 {
+            resources.add(inlet.0, -1.0);
+            buffer.1 += 1.0;
+        }
+    }
+}
+
+fn fill_outlet(
+    outlets: Query<(&Outlet, &Children)>,
+    ports: Query<&InNetwork>,
+    mut resources: ResMut<Resources>,
+    networks: Query<&PipeNetwork>,
+    mut buffers: Query<&mut Buffer>,
+    parents: Query<&ChildOf>,
+) {
+    for (outlet, children) in outlets.iter() {
+        let in_network = children.iter().find_map(|child| ports.get(child).ok());
+        if let Some(in_network) = in_network {
+            let network = networks.get(in_network.0).unwrap();
+            if network.resource == outlet.0 {
+                if let Ok(parent) = parents.get(network.source).map(|p| p.parent()) {
+                    if let Ok(mut buffer) = buffers.get_mut(parent) {
+                        if buffer.1 > 0.0 && resources.get(outlet.0) < 10.0 {
+                            resources.add(outlet.0, 1.0);
+                            buffer.1 -= 1.0;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn color_inlet(
+    inlets: Query<(&Buffer, &Children), (With<Inlet>, Changed<Buffer>)>,
+    material: Query<&MeshMaterial2d<DitherMaterial>>,
     mut materials: ResMut<Assets<DitherMaterial>>,
+) {
+    for (buffer, children) in inlets.iter() {
+        for child in children.iter() {
+            if let Ok(material) = material.get(child) {
+                let mat = materials.get_mut(&material.0).unwrap();
+                mat.settings.fill = 0.2 + 0.4 * buffer.1 / 10.0;
+            }
+        }
+    }
+}
+
+pub fn ammo_factory(
+    materials: &mut ResMut<Assets<DitherMaterial>>,
     flow_material: Handle<DitherMaterial>,
 ) -> impl Bundle {
     let ports = vec![
         MachinePort {
-            side: Direction::Right,
+            side: Direction::Left,
             flow: FlowDirection::Inlet,
         },
         MachinePort {
-            side: Direction::Up,
+            side: Direction::Right,
             flow: FlowDirection::Outlet,
         },
     ];
     (
-        Name::new("Test Machine"),
+        Name::new("Ammo Factory"),
         Machine,
+        AmmoFactory,
+        ShopItem::AmmoFactory,
+        Buffer(ResourceType::Ammo, 0.0),
         FactoryLayer,
         Mesh2d(CONSTRUCTOR_MESH),
         MeshMaterial2d(SOLID_WHITE),
         ZOrder::MACHINE,
+        Tooltip(
+            "Ammo Manufactory".to_string(),
+            Some("Consumes minerals from the left\nand produces ammo to the right".to_string()),
+        ),
         Children::spawn((
             Spawn((
                 Name::new("Test Machine Inner"),
@@ -179,6 +260,133 @@ pub fn test_machine(
                     scale: 40.0,
                 })),
                 Transform::from_xyz(0.0, 0.0, 0.2),
+            )),
+            SpawnIter(
+                ports
+                    .into_iter()
+                    .map(move |port| machine_port(port, flow_material.clone())),
+            ),
+        )),
+    )
+}
+
+#[derive(Component, Clone)]
+#[require(Machine)]
+pub struct PipeSwitch;
+
+pub fn pipe_switch(
+    meshes: &mut ResMut<Assets<Mesh>>,
+    flow_material: Handle<DitherMaterial>,
+) -> impl Bundle {
+    let ports = vec![
+        MachinePort {
+            side: Direction::Left,
+            flow: FlowDirection::Inlet,
+        },
+        MachinePort {
+            side: Direction::Right,
+            flow: FlowDirection::Outlet,
+        },
+    ];
+    const SMALL: f32 = TILE_SIZE * 0.1;
+    const BIG: f32 = TILE_SIZE * 0.2;
+    let vertices = vec![
+        vec2(0.0, SMALL),
+        vec2(0.0, BIG),
+        vec2(BIG, 0.0),
+        vec2(0.0, -BIG),
+        vec2(0.0, -SMALL),
+        vec2(-BIG, -SMALL),
+        vec2(-BIG, SMALL),
+    ];
+    (
+        Name::new("Pipe Switch"),
+        Machine,
+        PipeSwitch,
+        ShopItem::PipeSwitch,
+        Buffer(ResourceType::Mineral, 0.0),
+        FactoryLayer,
+        Mesh2d(CONSTRUCTOR_MESH),
+        MeshMaterial2d(SOLID_WHITE),
+        ZOrder::MACHINE,
+        Tooltip(
+            "Pipe Switch".to_string(),
+            Some("Switches output direction when clicked".to_string()),
+        ),
+        Children::spawn((
+            Spawn((
+                Name::new("Pipe Switch Inner"),
+                FactoryLayer,
+                Mesh2d(CONSTRUCTOR_MESH_INNER),
+                MeshMaterial2d(SOLID_BLACK),
+                Transform::from_xyz(0.0, 0.0, 0.2),
+            )),
+            Spawn((
+                Name::new("Pipe Switch Handle"),
+                FactoryLayer,
+                Mesh2d(meshes.add(Mesh::fill_polygon(&vertices))),
+                MeshMaterial2d(SOLID_WHITE),
+                Transform::from_xyz(0.0, 0.0, 0.3),
+            )),
+            SpawnIter(
+                ports
+                    .into_iter()
+                    .map(move |port| machine_port(port, flow_material.clone())),
+            ),
+        )),
+    )
+}
+
+#[derive(Component, Clone)]
+#[require(Machine)]
+pub struct HullFixer;
+
+pub fn hull_fixer(
+    meshes: &mut ResMut<Assets<Mesh>>,
+    materials: &mut ResMut<Assets<DitherMaterial>>,
+    flow_material: Handle<DitherMaterial>,
+) -> impl Bundle {
+    let ports = vec![MachinePort {
+        side: Direction::Up,
+        flow: FlowDirection::Inlet,
+    }];
+    const BIG: f32 = TILE_SIZE * 0.4;
+    const SMALL: f32 = TILE_SIZE * 0.1;
+    let vertices = vec![
+        vec2(-BIG, -BIG),
+        vec2(BIG, -BIG),
+        vec2(BIG, BIG),
+        vec2(SMALL, BIG),
+        vec2(SMALL, -SMALL),
+        vec2(-SMALL, -SMALL),
+        vec2(-SMALL, BIG),
+        vec2(-BIG, BIG),
+    ];
+    let mesh = meshes.add(Mesh::fill_polygon(&vertices));
+    (
+        Name::new("Hull Fixer"),
+        Machine,
+        HullFixer,
+        ShopItem::HullFixer,
+        Buffer(ResourceType::Mineral, 0.0),
+        FactoryLayer,
+        Mesh2d(mesh.clone()),
+        MeshMaterial2d(SOLID_WHITE),
+        ZOrder::MACHINE,
+        Tooltip(
+            "Hull Reconstructor".to_string(),
+            Some("Consumes minerals to repair ship".to_string()),
+        ),
+        Children::spawn((
+            Spawn((
+                Name::new("Hull Fixer Inner"),
+                FactoryLayer,
+                Mesh2d(mesh),
+                MeshMaterial2d(materials.add(MetalDither {
+                    fill: 0.3,
+                    scale: 40.0,
+                })),
+                Transform::from_xyz(0.0, 0.0, 0.3),
             )),
             SpawnIter(
                 ports
@@ -201,4 +409,186 @@ pub fn machine_port(port: MachinePort, flow_material: Handle<DitherMaterial>) ->
         )],
         port,
     )
+}
+
+#[derive(Component, Clone, Debug)]
+pub struct Buffer(pub ResourceType, pub f32);
+
+#[derive(Component, Clone)]
+#[require(Machine)]
+pub struct AmmoFactory;
+
+fn tick_ammo_factory(
+    mut commands: Commands,
+    mut ticks: EventReader<FactoryTick>,
+    machines: Query<(Entity, &Buffer, &Children), (With<AmmoFactory>, With<TileCoords>)>,
+    buffers: Query<&Buffer>,
+    parents: Query<&ChildOf>,
+    networks: Query<&PipeNetwork>,
+    ports: Query<(&MachinePort, &InNetwork)>,
+) {
+    for _ in ticks.read() {
+        for (entity, buffer, children) in machines.iter() {
+            for child in children.iter() {
+                if let Ok((port, in_network)) = ports.get(child) {
+                    let network = networks.get(in_network.0).unwrap();
+                    if port.flow == FlowDirection::Inlet
+                        && network.resource == ResourceType::Mineral
+                    {
+                        let parent = parents.get(network.source).unwrap();
+                        let source = buffers.get(parent.0).unwrap();
+                        if source.1 < 1.0 || buffer.1 >= 5.0 {
+                            continue;
+                        }
+                        commands
+                            .entity(parent.0)
+                            .insert(Buffer(source.0, source.1 - 1.0));
+                        commands
+                            .entity(entity)
+                            .insert(Buffer(ResourceType::Ammo, buffer.1 + 1.0));
+                        info!(
+                            "Filling ammo factory: {:?} to {}",
+                            ResourceType::Ammo,
+                            buffer.1 + 1.0
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn tick_hull_fixer(
+    mut commands: Commands,
+    mut ticks: EventReader<FactoryTick>,
+    machines: Query<(Entity, &Children), (With<HullFixer>, With<TileCoords>)>,
+    buffers: Query<&Buffer>,
+    parents: Query<&ChildOf>,
+    networks: Query<&PipeNetwork>,
+    ports: Query<(&MachinePort, &InNetwork)>,
+    ship: Query<(Entity, &Ship)>,
+) {
+    for _ in ticks.read() {
+        for (entity, children) in machines.iter() {
+            for child in children.iter() {
+                if let Ok((port, in_network)) = ports.get(child) {
+                    let network = networks.get(in_network.0).unwrap();
+                    if port.flow == FlowDirection::Inlet
+                        && network.resource == ResourceType::Mineral
+                    {
+                        let parent = parents.get(network.source).unwrap();
+                        let source = buffers.get(parent.0).unwrap();
+                        if source.1 < 1.0 {
+                            continue;
+                        }
+                        commands
+                            .entity(parent.0)
+                            .insert(Buffer(source.0, source.1 - 1.0));
+                        for (ship_entity, ship) in ship.iter() {
+                            if ship.health < 100.0 {
+                                commands
+                                    .entity(entity)
+                                    .insert(Buffer(ResourceType::Mineral, 1.0));
+                                commands.entity(ship_entity).insert(Ship {
+                                    health: ship.health + 20.0,
+                                    ..*ship
+                                });
+                                info!("Repairing ship: {} to {}", ship.health, ship.health + 20.0);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn tick_pipe_switch(
+    mut commands: Commands,
+    mut ticks: EventReader<FactoryTick>,
+    machines: Query<(Entity, &Buffer, &Children), (With<PipeSwitch>, With<TileCoords>)>,
+    buffers: Query<&Buffer>,
+    parents: Query<&ChildOf>,
+    networks: Query<&PipeNetwork>,
+    ports: Query<(&MachinePort, &InNetwork)>,
+) {
+    for _ in ticks.read() {
+        for (entity, buffer, children) in machines.iter() {
+            for child in children.iter() {
+                if let Ok((port, in_network)) = ports.get(child) {
+                    let network = networks.get(in_network.0).unwrap();
+                    if port.flow == FlowDirection::Inlet
+                        && network.resource == ResourceType::Mineral
+                    {
+                        let parent = parents.get(network.source).unwrap();
+                        let source = buffers.get(parent.0).unwrap();
+                        if source.1 < 1.0 || buffer.1 >= 5.0 {
+                            continue;
+                        }
+                        commands
+                            .entity(parent.0)
+                            .insert(Buffer(source.0, source.1 - 1.0));
+                        commands
+                            .entity(entity)
+                            .insert(Buffer(source.0, buffer.1 + 1.0));
+                        info!("Filling pipe switch: {:?} to {}", buffer.1, buffer.1 + 1.0);
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn observe_pipe_switches(mut commands: Commands, switches: Query<Entity, Added<PipeSwitch>>) {
+    for entity in switches.iter() {
+        commands.entity(entity).observe(pipe_switch_click);
+    }
+}
+
+fn pipe_switch_click(
+    trigger: Trigger<Pointer<Click>>,
+    mut commands: Commands,
+    flow_material: Res<PipeFlowMaterial>,
+    pipe_switches: Query<(Entity, &Children, &TileCoords), With<PipeSwitch>>,
+    ports: Query<&MachinePort>,
+    mut grid: ResMut<Grid>,
+    pipes: Query<&Pipe>,
+    mut invalidate_networks: EventWriter<InvalidateNetworks>,
+) {
+    let target = trigger.target();
+    if let Ok((switch, children, coords)) = pipe_switches.get(target) {
+        for child in children.iter() {
+            if let Ok(port) = ports.get(child) {
+                if port.flow == FlowDirection::Outlet {
+                    let new_dir = match port.side {
+                        Direction::Right => Direction::Down,
+                        Direction::Down => Direction::Up,
+                        Direction::Up => Direction::Right,
+                        _ => unreachable!(),
+                    };
+                    let old_coords = coords.0 + port.side.as_ivec2();
+                    let new_coords = coords.0 + new_dir.as_ivec2();
+                    for coords in [old_coords, new_coords] {
+                        if let Some(pipe) = grid.get_building(coords).filter(|e| pipes.contains(*e))
+                        {
+                            commands.entity(pipe).despawn();
+                            let pipe = commands
+                                .spawn((pipe_bundle(coords), ChildOf(grid.entity)))
+                                .id();
+                            grid.get_building_mut(coords).unwrap().replace(pipe);
+                            invalidate_networks.write(InvalidateNetworks);
+                        }
+                    }
+                    commands.entity(child).despawn();
+                    commands.entity(switch).with_child(machine_port(
+                        MachinePort {
+                            side: new_dir,
+                            flow: FlowDirection::Outlet,
+                        },
+                        flow_material.0.clone(),
+                    ));
+                }
+            }
+        }
+    }
 }

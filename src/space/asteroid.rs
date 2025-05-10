@@ -8,8 +8,8 @@ use crate::{
     layers::SpaceLayer,
     materials::{DitherMaterial, RockyDither, SOLID_WHITE},
     mesh::MeshLyonExtensions,
-    resources::ResourceType,
     scheduling::Sets,
+    sounds::Sounds,
     z_order::ZOrder,
 };
 
@@ -18,7 +18,7 @@ use super::{
     collision::{Collider, CollisionEvent},
     particles::SpawnParticles,
     physics::{Spin, Velocity},
-    pickup::Pickup,
+    pickup::{asteroid_piece, time_piece},
     ship::Ship,
 };
 
@@ -117,6 +117,7 @@ fn collide_asteroid(
     mut particle_writer: EventWriter<SpawnParticles>,
     asteroids: Query<&Velocity, With<Asteroid>>,
     ships: Query<(&Ship, &Transform, &Velocity)>,
+    sounds: Res<Sounds>,
 ) {
     for event in collision_events.read() {
         if asteroids.contains(event.entity_a) {
@@ -144,6 +145,11 @@ fn collide_asteroid(
                     count: 10,
                 });
                 info!("Ship collided with asteroid at {:?}", contact_point);
+                commands.spawn((
+                    Name::new("Asteroid Bump Sound"),
+                    AudioPlayer::new(sounds.asteroid_bump.clone()),
+                    PlaybackSettings::DESPAWN,
+                ));
             }
         }
     }
@@ -154,45 +160,30 @@ fn break_asteroid(
     asteroids: Query<(Entity, &Transform, &Asteroid)>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<DitherMaterial>>,
+    sounds: Res<Sounds>,
 ) {
     for (entity, transform, asteroid) in asteroids.iter() {
         if asteroid.health <= 0.0 {
             commands.entity(entity).despawn();
             for _ in 0..4 {
-                let vertices = make_asteroid_polygon(5..=7, 10.0..=20.0);
-                commands.spawn((
-                    Name::new("Mineral Pickup"),
-                    Pickup {
-                        resource: ResourceType::Mineral,
-                        amount: 10.0,
-                    },
-                    SpaceLayer,
-                    Mesh2d(meshes.add(Mesh::stroke_polygon(
-                        &vertices,
-                        &StrokeOptions::default().with_line_width(2.0),
-                    ))),
-                    MeshMaterial2d(SOLID_WHITE),
-                    Transform::from_xyz(
-                        transform.translation.x + rand::thread_rng().gen_range(-10.0..=10.0),
-                        transform.translation.y + rand::thread_rng().gen_range(-10.0..=10.0),
-                        0.0,
-                    ),
-                    ZOrder::PICKUP,
-                    Collider::from_vertices(&vertices),
-                    Velocity::random(25.0..40.0),
-                    Spin::random(),
-                    children![(
-                        Name::new("Asteroid Fragment"),
-                        SpaceLayer,
-                        Mesh2d(meshes.add(Mesh::fill_polygon(&vertices))),
-                        MeshMaterial2d(materials.add(RockyDither {
-                            fill: 0.5,
-                            scale: 20.0,
-                        })),
-                        Transform::from_xyz(0.0, 0.0, 1.0),
-                    )],
+                commands.spawn(asteroid_piece(
+                    transform.translation.truncate(),
+                    &mut meshes,
+                    &mut materials,
                 ));
             }
+            if rand::thread_rng().gen_bool(0.5) {
+                commands.spawn(time_piece(
+                    transform.translation.truncate(),
+                    &mut meshes,
+                    &mut materials,
+                ));
+            }
+            commands.spawn((
+                Name::new("Asteroid Break Sound"),
+                AudioPlayer::new(sounds.asteroid_break.clone()),
+                PlaybackSettings::DESPAWN,
+            ));
         }
     }
 }

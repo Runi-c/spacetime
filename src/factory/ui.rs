@@ -8,11 +8,17 @@ use crate::{
 
 pub fn plugin(app: &mut App) {
     app.add_systems(Startup, spawn_ui.in_set(Sets::Spawn))
-        .add_systems(Update, update_ui.in_set(Sets::PostUpdate));
+        .add_systems(
+            Update,
+            (update_ui, hide_time_warning).in_set(Sets::PostUpdate),
+        );
 }
 
 #[derive(Component, Clone)]
 pub struct ResourceDisplay(pub ResourceType);
+
+#[derive(Component, Clone)]
+pub struct OutOfTimeThing;
 
 fn spawn_ui(mut commands: Commands) {
     const DISPLAY_WIDTH: f32 = 150.0;
@@ -76,6 +82,43 @@ fn spawn_ui(mut commands: Commands) {
             ),
         ],
     ));
+    commands.spawn((
+        Name::new("Out of Time Marker"),
+        OutOfTimeThing,
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(SCREEN_SIZE.x / 2.0),
+            top: Val::Px(50.0),
+            bottom: Val::ZERO,
+            right: Val::ZERO,
+            flex_direction: FlexDirection::Row,
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Start,
+            ..default()
+        },
+        Pickable::IGNORE,
+        children![(
+            Name::new("Out of Time Text"),
+            Text::new("Factory in Stasis!\nCollect more time."),
+            TextLayout::new_with_justify(JustifyText::Center),
+        ),],
+    ));
+}
+
+fn hide_time_warning(
+    mut commands: Commands,
+    query: Query<Entity, With<OutOfTimeThing>>,
+    resources: Res<Resources>,
+) {
+    if resources.get(ResourceType::Time) > 0.0 {
+        for entity in query.iter() {
+            commands.entity(entity).insert(Visibility::Hidden);
+        }
+    } else {
+        for entity in query.iter() {
+            commands.entity(entity).insert(Visibility::Visible);
+        }
+    }
 }
 
 fn update_ui(
@@ -91,7 +134,7 @@ fn update_ui(
         commands.entity(entity).insert(Text::new(format!(
             "{}: {}",
             resource_display.0.to_string(),
-            amount
+            amount.ceil()
         )));
     }
 }

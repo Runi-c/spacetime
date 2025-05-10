@@ -8,6 +8,7 @@ use crate::{
     layers::FactoryLayer,
     materials::DitherMaterial,
     scheduling::Sets,
+    sounds::Sounds,
     z_order::ZOrder,
     SCREEN_SIZE,
 };
@@ -15,9 +16,8 @@ use crate::{
 use super::{
     camera::{CursorPosition, FactoryCamera},
     grid::{Grid, TileCoords, TILE_SIZE},
-    machines::test_machine,
+    machines::{ammo_factory, hull_fixer, pipe_switch},
     pipe::{Pipe, PipeFlowMaterial},
-    tooltip::Tooltip,
 };
 
 pub fn plugin(app: &mut App) {
@@ -32,7 +32,9 @@ pub struct Shop(pub Entity);
 
 #[derive(Component)]
 pub enum ShopItem {
-    TestMachine,
+    AmmoFactory,
+    PipeSwitch,
+    HullFixer,
 }
 
 #[derive(Resource)]
@@ -40,7 +42,8 @@ pub struct PickedUpItem(pub Entity);
 
 fn setup_shop(
     mut commands: Commands,
-    materials: ResMut<Assets<DitherMaterial>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<DitherMaterial>>,
     flow_material: Res<PipeFlowMaterial>,
 ) {
     let shop = commands
@@ -50,14 +53,16 @@ fn setup_shop(
             Transform::from_xyz(0.0, -SCREEN_SIZE.y / 2.0 + 100.0, 0.0),
             ZOrder::SHOP,
             Visibility::Visible,
-            children![(
-                ShopItem::TestMachine,
-                test_machine(materials, flow_material.0.clone()),
-                Tooltip("Test Machine".to_string(), None)
-            )],
+            Pickable::IGNORE,
+            children![
+                ammo_factory(&mut materials, flow_material.0.clone()),
+                pipe_switch(&mut meshes, flow_material.0.clone()),
+                hull_fixer(&mut meshes, &mut materials, flow_material.0.clone()),
+            ],
         ))
         .id();
     commands.insert_resource(Shop(shop));
+    commands.trigger(InvalidateShopLayout);
 }
 
 fn observe_shop_items(trigger: Trigger<OnAdd, ShopItem>, mut commands: Commands) {
@@ -67,10 +72,19 @@ fn observe_shop_items(trigger: Trigger<OnAdd, ShopItem>, mut commands: Commands)
         .observe(shop_item_drag_end);
 }
 
-fn shop_item_drag_start(trigger: Trigger<Pointer<DragStart>>, mut commands: Commands) {
+fn shop_item_drag_start(
+    trigger: Trigger<Pointer<DragStart>>,
+    mut commands: Commands,
+    sounds: Res<Sounds>,
+) {
     let target = trigger.target();
     commands.insert_resource(PickedUpItem(target));
     commands.entity(target).remove::<ChildOf>();
+    commands.spawn((
+        Name::new("Pick up machine"),
+        AudioPlayer::new(sounds.pickup_machine.clone()),
+        PlaybackSettings::DESPAWN,
+    ));
 }
 
 fn shop_item_drag_end(
@@ -78,31 +92,40 @@ fn shop_item_drag_end(
     mut commands: Commands,
     mut grid: ResMut<Grid>,
     pipes: Query<&Pipe>,
-    shop_items: Query<&ShopItem>,
+    shop_items: Query<(&ShopItem, Option<&TileCoords>)>,
     cursor_pos: CursorPosition,
-    materials: ResMut<Assets<DitherMaterial>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<DitherMaterial>>,
     flow_material: Res<PipeFlowMaterial>,
     shop: Res<Shop>,
     mut invalidate: EventWriter<InvalidateNetworks>,
+    sounds: Res<Sounds>,
 ) {
     let target = trigger.target();
+    let (shop_item, coords) = shop_items.get(target).unwrap();
     commands.remove_resource::<PickedUpItem>();
     if let Some(tile_pos) = cursor_pos.tile_pos() {
         info!("Dropped building on position: {:?}", tile_pos);
-        if grid.get_tile(tile_pos).is_some() {
-            let shop_item = shop_items.get(target).unwrap();
+        if grid.get_tile(tile_pos).is_some() && grid.get_building(tile_pos).is_none() {
             let spawned = match shop_item {
-                ShopItem::TestMachine => commands
-                    .spawn(test_machine(materials, flow_material.0.clone()))
+                ShopItem::AmmoFactory => commands
+                    .spawn(ammo_factory(&mut materials, flow_material.0.clone()))
+                    .id(),
+                ShopItem::PipeSwitch => commands
+                    .spawn(pipe_switch(&mut meshes, flow_material.0.clone()))
+                    .id(),
+                ShopItem::HullFixer => commands
+                    .spawn(hull_fixer(
+                        &mut meshes,
+                        &mut materials,
+                        flow_material.0.clone(),
+                    ))
                     .id(),
             };
             grid.get_building_mut(tile_pos).unwrap().replace(spawned);
-            commands.entity(spawned).insert((
-                TileCoords(tile_pos),
-                ChildOf {
-                    parent: grid.entity,
-                },
-            ));
+            commands
+                .entity(spawned)
+                .insert((TileCoords(tile_pos), ChildOf(grid.entity)));
             for dir in Direction::iter() {
                 if let Some(pipe) = grid
                     .get_building(tile_pos + dir.as_ivec2())
@@ -110,12 +133,7 @@ fn shop_item_drag_end(
                 {
                     commands.entity(pipe).despawn();
                     let pipe = commands
-                        .spawn((
-                            pipe_bundle(tile_pos + dir.as_ivec2()),
-                            ChildOf {
-                                parent: grid.entity,
-                            },
-                        ))
+                        .spawn((pipe_bundle(tile_pos + dir.as_ivec2()), ChildOf(grid.entity)))
                         .id();
                     invalidate.write(InvalidateNetworks);
                     grid.get_building_mut(tile_pos + dir.as_ivec2())
@@ -125,8 +143,21 @@ fn shop_item_drag_end(
             }
         }
     }
-    commands.entity(target).insert(ChildOf { parent: shop.0 });
-    commands.trigger(InvalidateShopLayout);
+    if coords.is_none() {
+        // return to shop
+        commands.entity(target).insert(ChildOf(shop.0));
+        commands.trigger(InvalidateShopLayout);
+    } else {
+        // thrown away built item
+        commands.entity(target).despawn();
+        invalidate.write(InvalidateNetworks);
+        grid.get_building_mut(coords.unwrap().0).unwrap().take();
+    }
+    commands.spawn((
+        Name::new("Plase machine"),
+        AudioPlayer::new(sounds.place_machine.clone()),
+        PlaybackSettings::DESPAWN,
+    ));
 }
 
 fn shop_item_drag(
@@ -154,12 +185,12 @@ fn shop_item_drag(
 struct InvalidateShopLayout;
 fn shop_layout(
     _trigger: Trigger<InvalidateShopLayout>,
-    mut shop_items: Query<&mut Transform, With<ShopItem>>,
+    mut shop_items: Query<&mut Transform, (With<ShopItem>, Without<TileCoords>)>,
 ) {
     let num = shop_items.iter().count() as f32;
-    let width = TILE_SIZE * num;
+    let width = (TILE_SIZE * 1.5) * num;
     for (i, mut transform) in shop_items.iter_mut().enumerate() {
-        transform.translation.x = -width / 2.0 + TILE_SIZE * (i as f32 + 0.5);
+        transform.translation.x = -width / 2.0 + TILE_SIZE * (i as f32 + 0.5) * 1.5;
         transform.translation.y = 0.0;
     }
 }
