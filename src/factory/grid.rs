@@ -1,18 +1,11 @@
 use std::f32::consts::PI;
 
 use bevy::prelude::*;
-use lyon_tessellation::{
-    geom::{
-        euclid::{Point2D, Size2D},
-        Box2D,
-    },
-    path::Winding,
-    StrokeOptions,
-};
+use lyon_tessellation::{geom::Box2D, path::Winding, StrokeOptions};
 
 use crate::{
     layers::FactoryLayer,
-    materials::{Dither, DitherMaterial, SOLID_WHITE},
+    materials::{DitherMaterial, GassyDither, MetalDither, RockyDither, SOLID_WHITE},
     mesh::MeshLyonExtensions,
     resources::ResourceType,
     scheduling::Sets,
@@ -20,16 +13,14 @@ use crate::{
 };
 
 use super::{
-    machines::{
-        FlowDirection, Inlet, Machine, MachinePort, CONSTRUCTOR_MESH, CONSTRUCTOR_MESH_INNER,
-        INLET_MESH, INLET_MESH_INNER,
-    },
-    pipe::{pipe_bridge, PipeFlowMaterial},
+    machines::{inlet, outlet},
+    pipe::PipeFlowMaterial,
     tooltip::Tooltip,
 };
 
 pub fn plugin(app: &mut App) {
-    app.add_systems(Startup, setup_grid.in_set(Sets::Spawn));
+    app.add_systems(Startup, setup_grid.in_set(Sets::Spawn))
+        .add_systems(Update, apply_coords.in_set(Sets::PostUpdate));
 }
 
 pub const GRID_SIZE: usize = 10;
@@ -38,6 +29,7 @@ pub const GRID_WIDTH: f32 = GRID_SIZE as f32 * TILE_SIZE;
 
 #[derive(Resource)]
 pub struct Grid {
+    pub entity: Entity,
     pub tiles: [Option<Entity>; GRID_SIZE * GRID_SIZE],
     pub buildings: [Option<Entity>; GRID_SIZE * GRID_SIZE],
 }
@@ -74,10 +66,11 @@ impl Grid {
     }
 }
 
-#[derive(Component, Debug)]
+#[derive(Component, Clone, Debug)]
 pub struct Tile;
 
-#[derive(Component, Debug)]
+#[derive(Component, Clone, Debug)]
+#[require(Transform)]
 pub struct TileCoords(pub IVec2);
 
 impl TileCoords {
@@ -96,7 +89,15 @@ impl TileCoords {
     }
 }
 
-#[derive(PartialEq, Eq)]
+fn apply_coords(mut query: Query<(&TileCoords, &mut Transform), Changed<TileCoords>>) {
+    for (coords, mut transform) in query.iter_mut() {
+        let target = coords.0.as_vec2() * TILE_SIZE + TILE_SIZE * 0.5;
+        transform.translation.x = target.x;
+        transform.translation.y = target.y;
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
     Right,
     Up,
@@ -154,24 +155,22 @@ fn setup_grid(
     mut materials: ResMut<Assets<DitherMaterial>>,
     flow_material: Res<PipeFlowMaterial>,
 ) {
-    let mut grid = Grid {
-        tiles: [None; GRID_SIZE * GRID_SIZE],
-        buildings: [None; GRID_SIZE * GRID_SIZE],
-    };
+    let mut tiles = [None; GRID_SIZE * GRID_SIZE];
+    let mut buildings = [None; GRID_SIZE * GRID_SIZE];
     let mesh = meshes.add(Mesh::stroke_with(
         |builder| {
             builder.add_rectangle(
-                &Box2D::from_origin_and_size(Point2D::zero(), Size2D::splat(TILE_SIZE)),
+                &Box2D::zero().inflate(TILE_SIZE * 0.5, TILE_SIZE * 0.5),
                 Winding::Positive,
             );
         },
         &StrokeOptions::default().with_line_width(1.0),
     ));
-    commands
+    let grid = commands
         .spawn((
             Name::new("Grid"),
             FactoryLayer,
-            Transform::from_xyz(GRID_WIDTH * -0.5, GRID_WIDTH * -0.5, ZOrder::TILE),
+            Transform::from_xyz(GRID_WIDTH * -0.5, GRID_WIDTH * -0.5, 0.0),
             InheritedVisibility::VISIBLE,
         ))
         .with_children(|parent| {
@@ -181,113 +180,79 @@ fn setup_grid(
                         Name::new("Tile"),
                         Tile,
                         FactoryLayer,
-                        TileCoords(IVec2::new(x as i32, y as i32)),
+                        TileCoords(ivec2(x as i32, y as i32)),
+                        ZOrder::TILE,
                         Mesh2d(mesh.clone()),
                         MeshMaterial2d(SOLID_WHITE),
-                        Transform::from_xyz(
-                            x as f32 * TILE_SIZE,
-                            y as f32 * TILE_SIZE,
-                            ZOrder::TILE,
-                        ),
                     ));
-                    grid.tiles[y * GRID_SIZE + x] = Some(tile.id());
+                    tiles[y * GRID_SIZE + x] = Some(tile.id());
                 }
             }
             for y in [3, 6] {
                 let inlet = parent.spawn((
                     Name::new("Mineral Inlet"),
-                    Inlet(ResourceType::Mineral),
-                    FactoryLayer,
-                    TileCoords(IVec2::new(0, y)),
-                    Mesh2d(INLET_MESH),
-                    MeshMaterial2d(SOLID_WHITE),
-                    Tooltip("Mineral Inlet".to_string()),
-                    Transform::from_xyz(
-                        0.5 * TILE_SIZE,
-                        (y as f32 + 0.5) * TILE_SIZE,
-                        ZOrder::MACHINE,
+                    Tooltip(
+                        "Mineral Inlet".to_string(),
+                        Some("Provides minerals to connected machines".to_string()),
                     ),
-                    children![
-                        (
-                            Name::new("Mineral Inlet Inner"),
-                            FactoryLayer,
-                            Mesh2d(INLET_MESH_INNER),
-                            MeshMaterial2d(materials.add(Dither {
-                                fill: 0.9,
-                                scale: 0.1,
-                                ..default()
-                            })),
-                            Transform::from_xyz(0.0, 0.0, 0.2),
-                        ),
-                        (
-                            Name::new("Mineral Inlet Port"),
-                            TileCoords(IVec2::new(0, y)),
-                            MachinePort {
-                                side: Direction::Right,
-                                flow: FlowDirection::Outlet,
-                            },
-                            Transform::default(),
-                            InheritedVisibility::VISIBLE,
-                            children![pipe_bridge(
-                                false,
-                                Direction::Right,
-                                flow_material.0.clone()
-                            )]
-                        ),
-                    ],
+                    inlet(
+                        ResourceType::Mineral,
+                        ivec2(0, y),
+                        Direction::Right,
+                        materials.add(RockyDither {
+                            fill: 0.6,
+                            scale: 40.0,
+                        }),
+                        flow_material.0.clone(),
+                    ),
                 ));
-                grid.buildings[y as usize * GRID_SIZE + 0] = Some(inlet.id());
+                buildings[y as usize * GRID_SIZE + 0] = Some(inlet.id());
             }
-
-            let machine = parent.spawn((
-                Name::new("Test Machine"),
-                Machine,
-                FactoryLayer,
-                TileCoords(IVec2::new(5, 5)),
-                Mesh2d(CONSTRUCTOR_MESH),
-                MeshMaterial2d(SOLID_WHITE),
-                Transform::from_xyz(5.5 * TILE_SIZE, 5.5 * TILE_SIZE, ZOrder::MACHINE),
-                children![
-                    (
-                        Name::new("Test Machine Inner"),
-                        FactoryLayer,
-                        Mesh2d(CONSTRUCTOR_MESH_INNER),
-                        MeshMaterial2d(materials.add(Dither {
-                            fill: 0.5,
-                            scale: 0.1,
-                            ..default()
-                        })),
-                        Transform::from_xyz(0.0, 0.0, 0.2),
+            for y in [3, 6] {
+                let inlet = parent.spawn((
+                    Name::new("Gas Inlet"),
+                    Tooltip(
+                        "Gas Inlet".to_string(),
+                        Some("Provides gas to connected machines".to_string()),
                     ),
-                    (
-                        Name::new("Test Machine Port"),
-                        TileCoords(IVec2::new(5, 5)),
-                        MachinePort {
-                            side: Direction::Right,
-                            flow: FlowDirection::Inlet,
-                        },
-                        Transform::default(),
-                        InheritedVisibility::VISIBLE,
-                        children![pipe_bridge(
-                            false,
-                            Direction::Right,
-                            flow_material.0.clone()
-                        ),]
+                    inlet(
+                        ResourceType::Gas,
+                        ivec2(GRID_SIZE as i32 - 1, y),
+                        Direction::Left,
+                        materials.add(GassyDither {
+                            fill: 0.8,
+                            scale: 40.0,
+                        }),
+                        flow_material.0.clone(),
                     ),
-                    (
-                        Name::new("Test Machine Port"),
-                        TileCoords(IVec2::new(5, 5)),
-                        MachinePort {
-                            side: Direction::Up,
-                            flow: FlowDirection::Outlet,
-                        },
-                        Transform::default(),
-                        InheritedVisibility::VISIBLE,
-                        children![pipe_bridge(false, Direction::Up, flow_material.0.clone()),]
+                ));
+                buildings[y as usize * GRID_SIZE + GRID_SIZE - 1] = Some(inlet.id());
+            }
+            for x in [3, 6] {
+                let outlet = parent.spawn((
+                    Name::new("Ammo Outlet"),
+                    Tooltip(
+                        "Ammo Outlet".to_string(),
+                        Some("Accepts ammo for the ship's weapons".to_string()),
                     ),
-                ],
-            ));
-            grid.buildings[5 * GRID_SIZE + 5] = Some(machine.id());
-        });
-    commands.insert_resource(grid);
+                    outlet(
+                        ResourceType::Ammo,
+                        ivec2(x, GRID_SIZE as i32 - 1),
+                        Direction::Down,
+                        materials.add(MetalDither {
+                            fill: 0.2,
+                            scale: 40.0,
+                        }),
+                        flow_material.0.clone(),
+                    ),
+                ));
+                buildings[(GRID_SIZE - 1) * GRID_SIZE + x as usize] = Some(outlet.id());
+            }
+        })
+        .id();
+    commands.insert_resource(Grid {
+        entity: grid,
+        tiles,
+        buildings,
+    });
 }

@@ -28,6 +28,7 @@ pub struct Resources {
     pub minerals: f32,
     pub gas: f32,
     pub time: f32,
+    pub ammo: f32,
 }
 
 impl Resources {

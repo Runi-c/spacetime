@@ -2,40 +2,60 @@ use std::time::Duration;
 
 use bevy::prelude::*;
 use lyon_tessellation::StrokeOptions;
-use rand::distr::uniform::SampleRange;
+use rand::{distributions::uniform::SampleRange, Rng};
 
 use crate::{
     layers::SpaceLayer,
-    materials::{Dither, DitherMaterial, SOLID_WHITE},
+    materials::{DitherMaterial, RockyDither, SOLID_WHITE},
     mesh::MeshLyonExtensions,
     resources::ResourceType,
     scheduling::Sets,
     z_order::ZOrder,
-    SCREEN_SIZE,
 };
 
 use super::{
-    collision::Collider,
+    bounds::ScreenBounds,
+    collision::{Collider, CollisionEvent},
+    particles::SpawnParticles,
     physics::{Spin, Velocity},
     pickup::Pickup,
+    ship::Ship,
 };
 
 pub fn plugin(app: &mut App) {
     app.add_systems(
         Update,
-        (asteroid_timer, break_asteroid, display_asteroid_health).in_set(Sets::PostUpdate),
+        (
+            collide_asteroid.in_set(Sets::Update),
+            (asteroid_timer, break_asteroid, display_asteroid_health).in_set(Sets::PostUpdate),
+        ),
     );
 }
 
-#[derive(Component)]
+#[derive(Component, Clone)]
 pub struct Asteroid {
     pub health: f32,
 }
 
-fn asteroid_timer(mut commands: Commands, time: Res<Time>, mut timer: Local<Option<Timer>>) {
-    let timer =
-        timer.get_or_insert_with(|| Timer::new(Duration::from_secs_f32(1.5), TimerMode::Repeating));
-    if timer.tick(time.delta()).just_finished() {
+fn asteroid_timer(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut timer: Local<Option<Timer>>,
+    asteroids: Query<&Asteroid>,
+) {
+    let asteroid_count = asteroids.iter().count();
+    if asteroid_count >= 10 {
+        return;
+    }
+    if let Some(timer) = timer.as_mut() {
+        if timer.tick(time.delta()).just_finished() {
+            commands.run_system_cached(spawn_asteroid);
+        }
+    } else {
+        timer.replace(Timer::new(
+            Duration::from_secs_f32(5.0),
+            TimerMode::Repeating,
+        ));
         commands.run_system_cached(spawn_asteroid);
     }
 }
@@ -45,9 +65,9 @@ pub fn make_asteroid_polygon(
     radius_range: impl SampleRange<f32> + Clone,
 ) -> Vec<Vec2> {
     let mut vertices = vec![];
-    let corner_count = rand::random_range(vertex_range);
+    let corner_count = rand::thread_rng().gen_range(vertex_range);
     for i in 0..corner_count {
-        let radius = rand::random_range(radius_range.clone());
+        let radius = rand::thread_rng().gen_range(radius_range.clone());
         let angle = (i as f32 / corner_count as f32) * std::f32::consts::PI * 2.0;
         let x = angle.cos() * radius;
         let y = angle.sin() * radius;
@@ -60,26 +80,11 @@ fn spawn_asteroid(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<DitherMaterial>>,
+    bounds: ScreenBounds,
 ) {
-    let pos = match rand::random_range(0..=3) {
-        0 => Vec2::new(
-            -SCREEN_SIZE.x / 2.0,
-            rand::random_range(-SCREEN_SIZE.y / 2.0..=SCREEN_SIZE.y / 2.0),
-        ),
-        1 => Vec2::new(
-            SCREEN_SIZE.x / 2.0,
-            rand::random_range(-SCREEN_SIZE.y / 2.0..=SCREEN_SIZE.y / 2.0),
-        ),
-        2 => Vec2::new(
-            rand::random_range(-SCREEN_SIZE.x / 2.0..=SCREEN_SIZE.x / 2.0),
-            -SCREEN_SIZE.y / 2.0,
-        ),
-        _ => Vec2::new(
-            rand::random_range(-SCREEN_SIZE.x / 2.0..=SCREEN_SIZE.x / 2.0),
-            SCREEN_SIZE.y / 2.0,
-        ),
-    };
+    let pos = bounds.random_outside() * 1.2;
     let vertices = make_asteroid_polygon(9..=15, 25.0..=50.0);
+    let target = bounds.random_inside() * 0.8;
     commands.spawn((
         Name::new("Asteroid"),
         Asteroid { health: 100.0 },
@@ -89,34 +94,60 @@ fn spawn_asteroid(
             &StrokeOptions::default().with_line_width(5.0),
         ))),
         MeshMaterial2d(SOLID_WHITE),
+        Transform::from_xyz(pos.x, pos.y, 0.0),
+        ZOrder::ASTEROID,
         Collider::from_vertices(&vertices),
-        Transform::from_xyz(pos.x, pos.y, ZOrder::ASTEROID),
-        Velocity::random(60.0..150.0),
+        Velocity::random_towards(target - pos, 60.0..150.0),
         Spin::random(),
         children![(
             SpaceLayer,
             Mesh2d(meshes.add(Mesh::fill_polygon(&vertices))),
-            MeshMaterial2d(materials.add(Dither {
-                fill: 0.9,
-                scale: 0.1,
-                ..default()
+            MeshMaterial2d(materials.add(RockyDither {
+                fill: 0.8,
+                scale: 50.0,
             })),
             Transform::from_xyz(0.0, 0.0, 1.0),
         )],
     ));
 }
 
-/* fn collide_asteroid(
+fn collide_asteroid(
     mut commands: Commands,
-    mut asteroids: Query<(&Transform, &mut Velocity, &mut Spin), With<Asteroid>>,
     mut collision_events: EventReader<CollisionEvent>,
+    mut particle_writer: EventWriter<SpawnParticles>,
+    asteroids: Query<&Velocity, With<Asteroid>>,
+    ships: Query<(&Ship, &Transform, &Velocity)>,
 ) {
     for event in collision_events.read() {
         if asteroids.contains(event.entity_a) {
-            if asteroids.contains(event.entity_b) {}
+            if ships.contains(event.entity_b) {
+                // Handle collision between asteroid and ship
+                let asteroid_velocity = asteroids.get(event.entity_a).unwrap();
+                let contact = event.contact;
+                let (ship, transform, velocity) = ships.get(event.entity_b).unwrap();
+                let contact_point = vec2(contact.point2.x, contact.point2.y);
+                let contact_normal = vec2(contact.normal1.x, contact.normal1.y);
+                commands.entity(event.entity_b).insert((
+                    Ship {
+                        health: ship.health - 10.0,
+                    },
+                    Transform::from_translation(
+                        transform.translation + contact_normal.extend(0.0) * -(contact.dist - 1.0),
+                    ),
+                    Velocity(
+                        contact_normal * (velocity.0.length() * 0.5).max(100.0)
+                            + asteroid_velocity.0 * 0.5,
+                    ),
+                ));
+                particle_writer.write(SpawnParticles {
+                    position: contact_point,
+                    count: 10,
+                });
+                info!("Ship collided with asteroid at {:?}", contact_point);
+            }
         }
     }
-} */
+}
 
 fn break_asteroid(
     mut commands: Commands,
@@ -136,27 +167,27 @@ fn break_asteroid(
                         amount: 10.0,
                     },
                     SpaceLayer,
-                    Collider::from_vertices(&vertices),
                     Mesh2d(meshes.add(Mesh::stroke_polygon(
                         &vertices,
                         &StrokeOptions::default().with_line_width(2.0),
                     ))),
                     MeshMaterial2d(SOLID_WHITE),
                     Transform::from_xyz(
-                        transform.translation.x + rand::random_range(-10.0..=10.0),
-                        transform.translation.y + rand::random_range(-10.0..=10.0),
-                        ZOrder::PICKUP,
+                        transform.translation.x + rand::thread_rng().gen_range(-10.0..=10.0),
+                        transform.translation.y + rand::thread_rng().gen_range(-10.0..=10.0),
+                        0.0,
                     ),
+                    ZOrder::PICKUP,
+                    Collider::from_vertices(&vertices),
                     Velocity::random(25.0..40.0),
                     Spin::random(),
                     children![(
                         Name::new("Asteroid Fragment"),
                         SpaceLayer,
                         Mesh2d(meshes.add(Mesh::fill_polygon(&vertices))),
-                        MeshMaterial2d(materials.add(Dither {
+                        MeshMaterial2d(materials.add(RockyDither {
                             fill: 0.5,
-                            scale: 0.1,
-                            ..default()
+                            scale: 20.0,
                         })),
                         Transform::from_xyz(0.0, 0.0, 1.0),
                     )],
@@ -175,7 +206,7 @@ fn display_asteroid_health(
         for child in children.iter() {
             if let Ok(material) = material_handles.get(child) {
                 if let Some(custom_material) = materials.get_mut(&material.0) {
-                    custom_material.settings.fill = 0.9 * asteroid.health / 100.0;
+                    custom_material.settings.fill = 0.2 + 0.5 * asteroid.health / 100.0;
                 }
             }
         }

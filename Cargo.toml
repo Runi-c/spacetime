@@ -6,11 +6,28 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bevy = { version = "0.16.0-rc.3", features = [
-    "dynamic_linking",
-    "file_watcher",
+bevy = { version = "0.16.0-rc.3", default-features = false, features = [
+    "async_executor",
+    "bevy_asset",
+    "bevy_audio",
+    "bevy_color",
+    "bevy_core_pipeline",
+    "bevy_gizmos",
+    "bevy_input_focus",
+    "bevy_log",
+    "bevy_mesh_picking_backend",
+    "bevy_picking",
+    "bevy_state",
+    "bevy_text",
+    "bevy_ui",
+    "bevy_ui_picking_backend",
+    "bevy_window",
+    "bevy_winit",
+    "default_font",
+    "multi_threaded",
+    "webgl2",
+    "tonemapping_luts",
 ] }
-bevy-inspector-egui = { git = "https://github.com/slyedoc/bevy-inspector-egui", branch = "bevy_0.16" }
 bevy_asset_loader = "0.23.0-rc.1"
 bevy_enhanced_input = "0.10.0-rc.3"
 bitflags = "2.9.0"
@@ -20,4 +37,12 @@ log = { version = "*", features = [
 ] }
 lyon_tessellation = "1.0.15"
 parry2d = "0.20.1"
-rand = "0.9.0"
+rand = "0.8.5"
+getrandom = { version = "0.2.15", features = ["js"] }
+
+[package.metadata.bevy_cli.native.dev]
+features = [
+    "bevy/dynamic_linking",
+    "bevy/file_watcher",
+    "bevy/embedded_watcher",
+]

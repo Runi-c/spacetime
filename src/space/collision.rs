@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use parry2d::{
     na::{Isometry2, Vector2},
     query::{self, Contact},
-    shape::{Compound, TriMesh},
+    shape::{Compound, Cuboid, SharedShape, TriMesh},
 };
 
 use crate::scheduling::Sets;
@@ -12,7 +12,7 @@ pub fn plugin(app: &mut App) {
         .add_event::<CollisionEvent>();
 }
 
-#[derive(Component)]
+#[derive(Component, Clone)]
 pub struct Collider(pub Compound);
 
 impl Collider {
@@ -29,6 +29,22 @@ impl Collider {
             )
             .unwrap(),
         )
+    }
+
+    pub fn from_aabb(min: Vec2, max: Vec2) -> Self {
+        let shape = Cuboid::new(Vector2::new((max.x - min.x) / 2.0, (max.y - min.y) / 2.0));
+        Self(Compound::new(vec![(
+            Isometry2::identity(),
+            SharedShape::new(shape),
+        )]))
+    }
+
+    pub fn from_circle(radius: f32) -> Self {
+        let shape = parry2d::shape::Ball::new(radius);
+        Self(Compound::new(vec![(
+            Isometry2::identity(),
+            SharedShape::new(shape),
+        )]))
     }
 }
 

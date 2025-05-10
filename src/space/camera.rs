@@ -3,10 +3,10 @@ use bevy::{prelude::*, render::camera::Viewport};
 use crate::{layers::SpaceLayer, scheduling::Sets, SCREEN_SIZE};
 
 pub fn plugin(app: &mut App) {
-    app.add_systems(Startup, setup_camera.in_set(Sets::Spawn));
+    app.add_systems(Startup, setup_camera.in_set(Sets::Init));
 }
 
-#[derive(Component)]
+#[derive(Component, Clone)]
 #[require(Camera2d)]
 pub struct SpaceCamera;
 

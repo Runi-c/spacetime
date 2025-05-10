@@ -18,7 +18,7 @@ pub fn plugin(app: &mut App) {
     );
 }
 
-#[derive(Component)]
+#[derive(Component, Clone)]
 pub struct Pickup {
     pub resource: ResourceType,
     pub amount: f32,

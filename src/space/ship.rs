@@ -1,9 +1,14 @@
 use bevy::prelude::*;
 use parry2d::query;
+use rand::Rng;
 
 use crate::{
-    layers::SpaceLayer, materials::SOLID_WHITE, mesh::MeshLyonExtensions, scheduling::Sets,
-    utils::parry2d_vec2, z_order::ZOrder,
+    layers::SpaceLayer,
+    materials::{DitherMaterial, MetalDither, SOLID_WHITE},
+    mesh::MeshLyonExtensions,
+    scheduling::Sets,
+    utils::parry2d_vec2,
+    z_order::ZOrder,
 };
 
 use super::{
@@ -20,14 +25,26 @@ pub fn plugin(app: &mut App) {
             (
                 ship_input.in_set(Sets::Input),
                 ship_laser.in_set(Sets::Update),
+                (display_ship_health, destroy_ship)
+                    .chain()
+                    .in_set(Sets::PostUpdate),
             ),
         );
 }
 
-#[derive(Component)]
-pub struct Ship;
+#[derive(Component, Clone)]
+pub struct Ship {
+    pub health: f32,
+}
 
-fn spawn_ship(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>) {
+#[derive(Component, Clone)]
+pub struct ShipHealthMarker;
+
+fn spawn_ship(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<DitherMaterial>>,
+) {
     const SIZE: f32 = 30.0;
     let vertices = vec![
         vec2(SIZE, 0.0),
@@ -39,15 +56,43 @@ fn spawn_ship(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>) {
     let mesh = meshes.add(Mesh::fill_polygon(&vertices));
     commands.spawn((
         Name::new("Ship"),
-        Ship,
+        Ship { health: 100.0 },
         SpaceLayer,
-        Mesh2d(mesh),
-        MeshMaterial2d(SOLID_WHITE),
+        Mesh2d(mesh.clone()),
+        MeshMaterial2d(materials.add(MetalDither {
+            fill: 0.2,
+            scale: SIZE,
+        })),
         Collider::from_vertices(&vertices),
-        Transform::from_xyz(0.0, 0.0, ZOrder::SHIP),
+        ZOrder::SHIP,
         Velocity(Vec2::ZERO),
         Rotation(0.0),
+        Visibility::Visible,
+        children![(
+            Name::new("Ship Health"),
+            ShipHealthMarker,
+            SpaceLayer,
+            Mesh2d(mesh),
+            MeshMaterial2d(SOLID_WHITE),
+            Transform::from_xyz(0.0, 0.0, 0.1),
+        )],
     ));
+}
+
+fn destroy_ship(
+    mut commands: Commands,
+    query: Query<(Entity, &Ship, &Transform), With<Ship>>,
+    mut particles: EventWriter<SpawnParticles>,
+) {
+    for (entity, ship, transform) in query.iter() {
+        if ship.health <= 0.0 {
+            commands.entity(entity).despawn();
+            particles.write(SpawnParticles {
+                position: transform.translation.truncate(),
+                count: 10,
+            });
+        }
+    }
 }
 
 fn ship_input(
@@ -55,7 +100,7 @@ fn ship_input(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     mut query: Query<(&Transform, &mut Rotation, &mut Velocity), With<Ship>>,
 ) {
-    const SPEED: f32 = 210.0;
+    const SPEED: f32 = 300.0;
     let mut input = Vec3::ZERO;
     if keyboard_input.pressed(KeyCode::KeyW) {
         input.y += 1.0;
@@ -118,7 +163,7 @@ pub fn ship_laser(
                 )
                 .unwrap();
                 if let Some(contact) = contact {
-                    if rand::random_bool(0.1) {
+                    if rand::thread_rng().gen_bool(0.1) {
                         particles.write(SpawnParticles {
                             position: parry2d_vec2(contact.point2),
                             count: 1,
@@ -131,6 +176,24 @@ pub fn ship_laser(
                     );
                     asteroid.health -= time.delta_secs() * 25.0;
                 }
+            }
+        }
+    }
+}
+
+fn display_ship_health(
+    mut commands: Commands,
+    ship: Query<(Entity, &Ship), Changed<Ship>>,
+    health_marker: Query<(Entity, &ChildOf, &Transform), With<ShipHealthMarker>>,
+) {
+    for (entity, ship) in ship.iter() {
+        for (marker_entity, child, transform) in health_marker.iter() {
+            if child.parent == entity {
+                let scale = ship.health / 100.0;
+                commands.entity(marker_entity).insert(Transform {
+                    scale: Vec3::splat(scale),
+                    ..*transform
+                });
             }
         }
     }

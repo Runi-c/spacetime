@@ -10,10 +10,10 @@ impl LayersExt for RenderLayers {
     const FACTORY: RenderLayers = RenderLayers::layer(1);
 }
 
-#[derive(Component)]
+#[derive(Component, Clone)]
 #[require(RenderLayers::SPACE)]
 pub struct SpaceLayer;
 
-#[derive(Component)]
+#[derive(Component, Clone)]
 #[require(RenderLayers::FACTORY)]
 pub struct FactoryLayer;

@@ -23,7 +23,9 @@ bitflags! {
         const NONE = 0;
         const WORLDSPACE = 1 << 0;
         const BAYER = 1 << 1;
-        const TRANSPARENT = 1 << 2;
+        const FBM = 1 << 2;
+        const BLUENOISE = 1 << 3;
+        const TRANSPARENT = 1 << 4;
     }
 }
 
@@ -45,6 +47,57 @@ pub struct DitherMaterial {
 impl From<Dither> for DitherMaterial {
     fn from(settings: Dither) -> Self {
         Self { settings }
+    }
+}
+
+pub struct RockyDither {
+    pub fill: f32,
+    pub scale: f32,
+}
+impl From<RockyDither> for DitherMaterial {
+    fn from(settings: RockyDither) -> Self {
+        Self {
+            settings: Dither {
+                fill: settings.fill,
+                scale: settings.scale,
+                flags: DitherFlags::FBM.bits(),
+                offset: vec2(rand::random(), rand::random()),
+                ..default()
+            },
+        }
+    }
+}
+
+pub struct GassyDither {
+    pub fill: f32,
+    pub scale: f32,
+}
+impl From<GassyDither> for DitherMaterial {
+    fn from(settings: GassyDither) -> Self {
+        Self {
+            settings: Dither {
+                fill: settings.fill,
+                scale: settings.scale,
+                ..default()
+            },
+        }
+    }
+}
+
+pub struct MetalDither {
+    pub fill: f32,
+    pub scale: f32,
+}
+impl From<MetalDither> for DitherMaterial {
+    fn from(settings: MetalDither) -> Self {
+        Self {
+            settings: Dither {
+                fill: settings.fill,
+                scale: settings.scale,
+                flags: DitherFlags::BAYER.bits(),
+                ..default()
+            },
+        }
     }
 }
 

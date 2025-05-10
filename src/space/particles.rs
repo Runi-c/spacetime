@@ -2,7 +2,7 @@ use bevy::prelude::*;
 
 use crate::{
     layers::SpaceLayer,
-    materials::{Dither, DitherMaterial},
+    materials::{DitherMaterial, GassyDither},
     scheduling::Sets,
     z_order::ZOrder,
 };
@@ -19,7 +19,7 @@ pub fn plugin(app: &mut App) {
     );
 }
 
-#[derive(Component)]
+#[derive(Component, Clone)]
 pub struct Particle {
     pub lifetime: f32,
 }
@@ -42,15 +42,15 @@ pub fn spawn_particles(
                 Name::new("Particle"),
                 Particle { lifetime: 1.0 },
                 SpaceLayer,
-                Transform::from_translation(event.position.extend(ZOrder::BULLET)),
                 Mesh2d(mesh.clone()),
+                MeshMaterial2d(materials.add(GassyDither {
+                    fill: rand::random::<f32>() * 0.3 + 0.4,
+                    scale: 20.0,
+                })),
+                Transform::from_translation(event.position.extend(0.0)),
+                ZOrder::BULLET,
                 Velocity::random(0.0..100.0),
                 Rotation::random(),
-                MeshMaterial2d(materials.add(Dither {
-                    fill: rand::random::<f32>() * 0.3 + 0.4,
-                    scale: 0.1,
-                    ..default()
-                })),
             ));
         }
     }

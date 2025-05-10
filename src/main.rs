@@ -1,5 +1,4 @@
 use bevy::{prelude::*, window::EnabledButtons};
-use bevy_inspector_egui::{bevy_egui::EguiPlugin, quick::WorldInspectorPlugin};
 
 mod factory;
 mod layers;
@@ -34,17 +33,12 @@ fn main() {
         )
         .add_plugins(MeshPickingPlugin)
         .add_plugins((
-            EguiPlugin {
-                enable_multipass_for_primary_context: true,
-            },
-            WorldInspectorPlugin::new(),
-        ))
-        .add_plugins((
             materials::plugin,
             factory::plugin,
             resources::plugin,
             scheduling::plugin,
             space::plugin,
+            z_order::plugin,
         ))
         .insert_resource(ClearColor(Color::srgb(0.0, 0.0, 0.0)))
         .add_systems(Update, exit_on_esc)

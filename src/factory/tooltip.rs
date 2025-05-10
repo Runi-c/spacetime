@@ -7,14 +7,15 @@ pub fn plugin(app: &mut App) {
         .add_systems(Update, observe_tooltips.in_set(Sets::Input));
 }
 
-#[derive(Component)]
+#[derive(Component, Clone)]
 #[require(Pickable)]
-pub struct Tooltip(pub String);
+pub struct Tooltip(pub String, pub Option<String>);
 
 #[derive(Resource)]
 struct ActiveTooltip {
     container: Entity,
-    text: Entity,
+    title: Entity,
+    description: Entity,
 }
 
 fn spawn_tooltip(mut commands: Commands) {
@@ -25,6 +26,8 @@ fn spawn_tooltip(mut commands: Commands) {
                 position_type: PositionType::Absolute,
                 border: UiRect::all(Val::Px(1.0)),
                 padding: UiRect::all(Val::Px(5.0)),
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(5.0),
                 ..default()
             },
             Visibility::Hidden,
@@ -32,7 +35,7 @@ fn spawn_tooltip(mut commands: Commands) {
             BorderColor(Color::WHITE),
         ))
         .id();
-    let text = commands
+    let title = commands
         .spawn((
             Name::new("Tooltip Text"),
             Node::default(),
@@ -41,7 +44,21 @@ fn spawn_tooltip(mut commands: Commands) {
             ChildOf { parent: container },
         ))
         .id();
-    commands.insert_resource(ActiveTooltip { container, text });
+    let description = commands
+        .spawn((
+            Name::new("Tooltip Description"),
+            Node::default(),
+            Text("".to_string()),
+            TextFont::from_font_size(12.0),
+            Visibility::Inherited,
+            ChildOf { parent: container },
+        ))
+        .id();
+    commands.insert_resource(ActiveTooltip {
+        container,
+        title,
+        description,
+    });
 }
 
 fn observe_tooltips(mut commands: Commands, tooltip_query: Query<Entity, Added<Tooltip>>) {
@@ -59,29 +76,60 @@ fn update_tooltip(
     mut commands: Commands,
     tooltips: Query<&Tooltip>,
     active_tooltip: Res<ActiveTooltip>,
+    buttons: Res<ButtonInput<MouseButton>>,
 ) {
+    if buttons.any_pressed([MouseButton::Left, MouseButton::Right]) {
+        commands
+            .entity(active_tooltip.container)
+            .insert(Visibility::Hidden);
+        return;
+    }
     let target = trigger.target();
-    if let Ok(entity) = tooltips.get(target) {
-        let tooltip = entity.0.clone();
+    if let Ok(tooltip) = tooltips.get(target) {
+        let title = tooltip.0.clone();
         // Update the tooltip text and position
         let position = trigger.pointer_location.position;
         commands
-            .entity(active_tooltip.text)
-            .insert(Text(tooltip.clone()));
+            .entity(active_tooltip.title)
+            .insert(Text(title.clone()));
         commands.entity(active_tooltip.container).insert((
             Visibility::Visible,
             Node {
                 position_type: PositionType::Absolute,
                 border: UiRect::all(Val::Px(1.0)),
                 padding: UiRect::all(Val::Px(5.0)),
-                left: Val::Px(position.x + 5.0),
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(5.0),
+                left: if position.x > (3.0 * SCREEN_SIZE.x / 4.0) {
+                    Val::Auto
+                } else {
+                    Val::Px(position.x + 5.0)
+                },
+                right: if position.x > (3.0 * SCREEN_SIZE.x / 4.0) {
+                    Val::Px(SCREEN_SIZE.x - position.x + 5.0)
+                } else {
+                    Val::Auto
+                },
                 bottom: Val::Px(SCREEN_SIZE.y - position.y + 5.0),
                 ..default()
             },
         ));
+        if let Some(description) = &tooltip.1 {
+            commands.entity(active_tooltip.description).insert((
+                Text(description.clone()),
+                Node {
+                    display: Display::Block,
+                    ..default()
+                },
+            ));
+        } else {
+            commands.entity(active_tooltip.description).insert(Node {
+                display: Display::None,
+                ..default()
+            });
+        }
     } else {
-        // Hide the tooltip if no entity has a Tooltip component
-        commands.entity(target).insert(Visibility::Hidden);
+        warn!("Tooltip entity not found: {:?}", target);
     }
 }
 

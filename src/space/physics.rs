@@ -1,9 +1,7 @@
-use std::{
-    f32::consts::{PI, TAU},
-    ops::Range,
-};
+use std::ops::Range;
 
 use bevy::prelude::*;
+use rand::Rng;
 
 use crate::scheduling::Sets;
 
@@ -19,7 +17,7 @@ pub fn plugin(app: &mut App) {
     );
 }
 
-#[derive(Component)]
+#[derive(Component, Clone)]
 pub struct Velocity(pub Vec2);
 
 impl Velocity {
@@ -30,37 +28,45 @@ impl Velocity {
                 rand::random::<f32>() * 2.0 - 1.0,
             )
             .normalize()
-                * rand::random_range(speed),
+                * rand::thread_rng().gen_range(speed),
         )
+    }
+
+    pub fn random_towards(dir: Vec2, speed: Range<f32>) -> Self {
+        Self(dir.normalize() * rand::thread_rng().gen_range(speed))
     }
 }
 
-#[derive(Component)]
+#[derive(Component, Clone)]
 pub struct Rotation(pub f32);
 
 impl Rotation {
     pub fn random() -> Self {
-        Self(rand::random::<f32>() * TAU)
+        Self(rand::random::<f32>() * 360.0)
     }
 }
 
-#[derive(Component)]
+#[derive(Component, Clone)]
 #[require(Rotation(0.0))]
 pub struct Spin(pub f32);
 
 impl Spin {
     pub fn random() -> Self {
-        Self(rand::random::<f32>() * TAU - PI)
+        Self(rand::random::<f32>() * 180.0 - 90.0)
     }
 }
 
+#[derive(Component, Clone)]
+pub struct DespawnOutOfBounds;
+
 fn physics_move(
+    mut commands: Commands,
     time: Res<Time>,
     camera: Query<(&Camera, &Projection), With<SpaceCamera>>,
-    mut query: Query<(&mut Transform, &Velocity)>,
+    mut query: Query<(Entity, &mut Transform, &Velocity, Has<DespawnOutOfBounds>)>,
 ) {
     let (camera, projection) = camera.single().unwrap();
-    for (mut transform, velocity) in query.iter_mut() {
+    for (entity, mut transform, velocity, despawn) in query.iter_mut() {
         transform.translation += velocity.0.extend(0.0) * time.delta_secs();
 
         const WRAP_BUFFER: f32 = 40.0;
@@ -71,15 +77,23 @@ fn physics_move(
         let viewport_size =
             camera.physical_viewport_size().unwrap().as_vec2() * scale * 0.5 + WRAP_BUFFER;
 
+        let mut moved = false;
         if transform.translation.x > viewport_size.x {
             transform.translation.x = -viewport_size.x;
+            moved = true;
         } else if transform.translation.x < -viewport_size.x {
             transform.translation.x = viewport_size.x;
+            moved = true;
         }
         if transform.translation.y > viewport_size.y {
             transform.translation.y = -viewport_size.y;
+            moved = true;
         } else if transform.translation.y < -viewport_size.y {
             transform.translation.y = viewport_size.y;
+            moved = true;
+        }
+        if moved && despawn {
+            commands.entity(entity).despawn();
         }
     }
 }
