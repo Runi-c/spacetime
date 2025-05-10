@@ -108,7 +108,7 @@ pub fn asteroid_piece(
         ZOrder::PICKUP,
         Collider::from_vertices(&vertices),
         Velocity::random(25.0..40.0),
-        Spin::random(),
+        Spin::random(90.0),
         children![(
             Name::new("Asteroid Fragment"),
             SpaceLayer,
@@ -153,7 +153,7 @@ pub fn time_piece(
         ZOrder::PICKUP,
         Collider::from_vertices(&vertices),
         Velocity::random(25.0..40.0),
-        Spin::random(),
+        Spin::random(45.0),
         children![(
             Name::new("Time Piece"),
             SpaceLayer,

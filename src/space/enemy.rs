@@ -57,8 +57,8 @@ fn enemy_timer(
     if enemy_count >= 1 {
         return;
     }
-    let timer =
-        timer.get_or_insert_with(|| Timer::new(Duration::from_secs_f32(1.5), TimerMode::Repeating));
+    let timer = timer
+        .get_or_insert_with(|| Timer::new(Duration::from_secs_f32(15.0), TimerMode::Repeating));
     if timer.tick(time.delta()).just_finished() {
         commands.run_system_cached(spawn_enemy);
     }
@@ -255,7 +255,7 @@ fn collide_bullet(
                 // Handle collision between ship bullet and enemy
                 commands.entity(event.entity_b).despawn();
                 commands.entity(event.entity_a).insert(Enemy {
-                    health: enemy.health - 25.0,
+                    health: enemy.health - 15.0,
                 });
                 particle_writer.write(SpawnParticles {
                     position: parry2d_vec2(event.contact.point2),
@@ -265,7 +265,7 @@ fn collide_bullet(
                 // Handle collision between ship bullet and asteroid
                 commands.entity(event.entity_b).despawn();
                 commands.entity(event.entity_a).insert(Asteroid {
-                    health: asteroid.health - 25.0,
+                    health: asteroid.health - 15.0,
                 });
                 particle_writer.write(SpawnParticles {
                     position: parry2d_vec2(event.contact.point2),

@@ -16,7 +16,7 @@ use crate::{
 use super::{
     camera::{CursorPosition, FactoryCamera},
     grid::{Grid, TileCoords, TILE_SIZE},
-    machines::{ammo_factory, hull_fixer, pipe_switch},
+    machines::{ammo_factory, hull_fixer, pipe_switch, rocket_factory},
     pipe::{Pipe, PipeFlowMaterial},
 };
 
@@ -35,6 +35,7 @@ pub enum ShopItem {
     AmmoFactory,
     PipeSwitch,
     HullFixer,
+    RocketFactory,
 }
 
 #[derive(Resource)]
@@ -58,6 +59,7 @@ fn setup_shop(
                 ammo_factory(&mut materials, flow_material.0.clone()),
                 pipe_switch(&mut meshes, flow_material.0.clone()),
                 hull_fixer(&mut meshes, &mut materials, flow_material.0.clone()),
+                rocket_factory(&mut meshes, &mut materials, flow_material.0.clone()),
             ],
         ))
         .id();
@@ -81,7 +83,7 @@ fn shop_item_drag_start(
     commands.insert_resource(PickedUpItem(target));
     commands.entity(target).remove::<ChildOf>();
     commands.spawn((
-        Name::new("Pick up machine"),
+        Name::new("Pick Up Machine Sound"),
         AudioPlayer::new(sounds.pickup_machine.clone()),
         PlaybackSettings::DESPAWN,
     ));
@@ -121,6 +123,13 @@ fn shop_item_drag_end(
                         flow_material.0.clone(),
                     ))
                     .id(),
+                ShopItem::RocketFactory => commands
+                    .spawn(rocket_factory(
+                        &mut meshes,
+                        &mut materials,
+                        flow_material.0.clone(),
+                    ))
+                    .id(),
             };
             grid.get_building_mut(tile_pos).unwrap().replace(spawned);
             commands
@@ -135,7 +144,6 @@ fn shop_item_drag_end(
                     let pipe = commands
                         .spawn((pipe_bundle(tile_pos + dir.as_ivec2()), ChildOf(grid.entity)))
                         .id();
-                    invalidate.write(InvalidateNetworks);
                     grid.get_building_mut(tile_pos + dir.as_ivec2())
                         .unwrap()
                         .replace(pipe);
@@ -150,11 +158,11 @@ fn shop_item_drag_end(
     } else {
         // thrown away built item
         commands.entity(target).despawn();
-        invalidate.write(InvalidateNetworks);
         grid.get_building_mut(coords.unwrap().0).unwrap().take();
     }
+    invalidate.write(InvalidateNetworks);
     commands.spawn((
-        Name::new("Plase machine"),
+        Name::new("Place Machine Sound"),
         AudioPlayer::new(sounds.place_machine.clone()),
         PlaybackSettings::DESPAWN,
     ));

@@ -98,7 +98,7 @@ fn spawn_asteroid(
         ZOrder::ASTEROID,
         Collider::from_vertices(&vertices),
         Velocity::random_towards(target - pos, 60.0..150.0),
-        Spin::random(),
+        Spin::random(90.0),
         children![(
             SpaceLayer,
             Mesh2d(meshes.add(Mesh::fill_polygon(&vertices))),

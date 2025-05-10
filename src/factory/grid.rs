@@ -208,7 +208,7 @@ pub fn setup_grid(
                 ));
                 buildings[y as usize * GRID_SIZE + 0] = Some(inlet.id());
             }
-            /*             for y in [3, 6] {
+            for y in [3, 6] {
                 let inlet = parent.spawn((
                     Name::new("Gas Inlet"),
                     Tooltip(
@@ -227,7 +227,7 @@ pub fn setup_grid(
                     ),
                 ));
                 buildings[y as usize * GRID_SIZE + GRID_SIZE - 1] = Some(inlet.id());
-            } */
+            }
             for x in [3, 6] {
                 let outlet = parent.spawn((
                     Name::new("Ammo Outlet"),

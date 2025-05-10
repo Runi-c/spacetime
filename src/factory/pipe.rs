@@ -51,7 +51,7 @@ pub fn plugin(app: &mut App) {
             Update,
             (
                 draw_pipe.in_set(Sets::Input),
-                (connect_pipes, rebuild_networks)
+                (connect_ports, connect_pipes, rebuild_networks)
                     .chain()
                     .in_set(Sets::Update),
                 (update_pipe_material, make_pipe_bridges, log_networks).in_set(Sets::PostUpdate),
@@ -211,6 +211,44 @@ fn connect_pipes(
     }
 }
 
+fn connect_ports(
+    mut commands: Commands,
+    added_ports: Query<(Entity, &MachinePort, &ChildOf), Added<MachinePort>>,
+    machines: Query<(&TileCoords, &Children), With<Machine>>,
+    ports: Query<&MachinePort>,
+    grid: Res<Grid>,
+) {
+    for (port_entity, port, child_of) in added_ports.iter() {
+        info!("Connecting port: {:?}", port);
+        if let Ok((coords, _)) = machines.get(child_of.parent()) {
+            info!("Port coords: {:?}", coords);
+            if let Some(neighbor) = grid.get_building(coords.0 + port.side.as_ivec2()) {
+                info!("Neighbor: {:?}", neighbor);
+                if let Ok((_, children)) = machines.get(neighbor) {
+                    info!("Neighbor children: {:?}", children);
+                    // neighbor is a machine
+                    let maybe_port =
+                        children
+                            .iter()
+                            .filter_map(|c| ports.get(c).ok())
+                            .find(|nbr_port| {
+                                info!("Neighbor port: {:?}", nbr_port);
+                                port.side == nbr_port.side.flip() && port.flow != nbr_port.flow
+                            });
+                    if let Some(port) = maybe_port {
+                        info!("Connecting ports: {:?} -> {:?}", port_entity, port);
+                        if port.flow == FlowDirection::Inlet {
+                            commands.entity(port_entity).insert(PipeTo(neighbor));
+                        } else if port.flow == FlowDirection::Outlet {
+                            commands.entity(neighbor).insert(PipeTo(port_entity));
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[derive(Component, Clone)]
 pub struct PipeBridge;
 #[derive(Component, Clone)]
@@ -352,7 +390,7 @@ fn rebuild_networks(
                 let maybe_port = children
                     .iter()
                     .filter_map(|c| ports.get(c).ok())
-                    .filter(|(_, _, p)| p.flow == FlowDirection::Outlet)
+                    .filter(|(_, _, p)| p.flow == FlowDirection::Inlet)
                     .find(|(_, _, nbr_port)| nbr_port.side == port.side.flip());
                 if let Some((nbr_port_e, _, _)) = maybe_port {
                     sink = Some(nbr_port_e);

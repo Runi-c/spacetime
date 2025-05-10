@@ -21,7 +21,7 @@ pub struct ResourceDisplay(pub ResourceType);
 pub struct OutOfTimeThing;
 
 fn spawn_ui(mut commands: Commands) {
-    const DISPLAY_WIDTH: f32 = 150.0;
+    const DISPLAY_WIDTH: f32 = 120.0;
     commands.spawn((
         Name::new("Resource UI"),
         Node {
@@ -74,6 +74,16 @@ fn spawn_ui(mut commands: Commands) {
                 Name::new("Ammo Display"),
                 ResourceDisplay(ResourceType::Ammo),
                 Text::new("Ammo: 0"),
+                TextLayout::new_with_justify(JustifyText::Center),
+                Node {
+                    width: Val::Px(DISPLAY_WIDTH),
+                    ..default()
+                }
+            ),
+            (
+                Name::new("Rockets Display"),
+                ResourceDisplay(ResourceType::Rockets),
+                Text::new("Rockets: 0"),
                 TextLayout::new_with_justify(JustifyText::Center),
                 Node {
                     width: Val::Px(DISPLAY_WIDTH),

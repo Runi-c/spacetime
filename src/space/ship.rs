@@ -1,4 +1,7 @@
-use bevy::prelude::*;
+use bevy::{
+    audio::{PlaybackMode, Volume},
+    prelude::*,
+};
 use parry2d::query;
 use rand::Rng;
 
@@ -18,10 +21,12 @@ use crate::{
 
 use super::{
     asteroid::Asteroid,
-    collision::{transform_to_isometry, Collider},
-    enemy::Enemy,
+    collision::{transform_to_isometry, Collider, CollisionEvent},
+    enemy::{Enemy, EnemyBullet},
+    gas::GasCloud,
     particles::SpawnParticles,
     physics::{Rotation, Velocity},
+    pickup::Pickup,
 };
 
 pub fn plugin(app: &mut App) {
@@ -29,8 +34,15 @@ pub fn plugin(app: &mut App) {
         .add_systems(
             Update,
             (
+                ship_rocket_update.in_set(Sets::Physics),
                 (ship_input, restart_game).in_set(Sets::Input),
-                ship_laser.in_set(Sets::Update),
+                (
+                    ship_laser,
+                    ship_rocket_fire,
+                    ship_rocket_cooldown,
+                    collide_rocket,
+                )
+                    .in_set(Sets::Update),
                 (display_ship_health, destroy_ship)
                     .chain()
                     .in_set(Sets::PostUpdate),
@@ -154,6 +166,12 @@ fn restart_game(
     grid: Res<Grid>,
     asteroids: Query<Entity, With<Asteroid>>,
     enemies: Query<Entity, With<Enemy>>,
+    ships: Query<Entity, With<Ship>>,
+    gas_clouds: Query<Entity, With<GasCloud>>,
+    pickups: Query<Entity, With<Pickup>>,
+    enemy_bullets: Query<Entity, With<EnemyBullet>>,
+    ship_bullets: Query<Entity, With<ShipBullet>>,
+    rockets: Query<Entity, With<ShipRocket>>,
 ) {
     if keyboard_input.just_pressed(KeyCode::KeyR) {
         for entity in game_over_screen.iter() {
@@ -164,6 +182,24 @@ fn restart_game(
             commands.entity(entity).despawn();
         }
         for entity in enemies.iter() {
+            commands.entity(entity).despawn();
+        }
+        for entity in ships.iter() {
+            commands.entity(entity).despawn();
+        }
+        for entity in gas_clouds.iter() {
+            commands.entity(entity).despawn();
+        }
+        for entity in pickups.iter() {
+            commands.entity(entity).despawn();
+        }
+        for entity in enemy_bullets.iter() {
+            commands.entity(entity).despawn();
+        }
+        for entity in ship_bullets.iter() {
+            commands.entity(entity).despawn();
+        }
+        for entity in rockets.iter() {
             commands.entity(entity).despawn();
         }
         commands.insert_resource(Resources::default());
@@ -266,15 +302,19 @@ fn ship_input(
                 Collider::from_circle(5.0),
                 Transform::from_translation(transform.translation),
                 ZOrder::BULLET,
-                Velocity(Vec2::from_angle(angle) * 1500.0),
+                Velocity(Vec2::from_angle(angle + rand::random::<f32>() * 0.1 - 0.05) * 1500.0),
                 Rotation(0.0),
                 DespawnOutOfBounds,
             ));
-            commands.entity(ship).insert(ShootyCooldown(0.5));
+            commands.entity(ship).insert(ShootyCooldown(0.15));
             commands.spawn((
                 Name::new("Shooty Gun Noise"),
                 AudioPlayer::new(sounds.gun.clone()),
-                PlaybackSettings::DESPAWN,
+                PlaybackSettings {
+                    mode: PlaybackMode::Despawn,
+                    volume: Volume::Linear(0.4),
+                    ..default()
+                },
             ));
         }
     }
@@ -363,6 +403,165 @@ fn display_ship_health(
                     scale: Vec3::splat(scale),
                     ..*transform
                 });
+            }
+        }
+    }
+}
+
+#[derive(Component)]
+pub struct ShipRocket;
+
+#[derive(Component)]
+pub struct ShipRocketCooldown(pub f32);
+
+#[derive(Component, Clone)]
+pub struct MissileFlightSound;
+
+fn ship_rocket_fire(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    ships: Query<(Entity, &Transform, Has<ShipRocketCooldown>), With<Ship>>,
+    enemies: Query<&Transform, With<Enemy>>,
+    sounds: Res<Sounds>,
+    mut resources: ResMut<Resources>,
+) {
+    if ships.is_empty() {
+        return;
+    }
+    let (ship, ship_transform, cooldown) = ships.iter().next().unwrap();
+    if cooldown || resources.rockets < 1.0 {
+        return;
+    }
+    if let Some(enemy_transform) = enemies.iter().next() {
+        let mesh = meshes.add(Triangle2d::new(
+            vec2(5.0, 0.0),
+            vec2(-10.0, -5.0),
+            vec2(-10.0, 5.0),
+        ));
+        commands.spawn((
+            Name::new("Ship Rocket"),
+            SpaceLayer,
+            ShipRocket,
+            Mesh2d(mesh),
+            MeshMaterial2d(SOLID_WHITE),
+            Collider::from_circle(5.0),
+            Transform::from_translation(ship_transform.translation),
+            ZOrder::BULLET,
+            Velocity::random(500.0..1000.0),
+            Rotation(0.0),
+        ));
+        commands.entity(ship).insert(ShipRocketCooldown(5.0));
+        commands.spawn((
+            Name::new("Missile Launch Noise"),
+            AudioPlayer::new(sounds.missile_launch.clone()),
+            PlaybackSettings::DESPAWN,
+        ));
+        resources.rockets -= 1.0;
+    }
+}
+
+fn ship_rocket_cooldown(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut query: Query<(Entity, &mut ShipRocketCooldown)>,
+) {
+    for (entity, mut cooldown) in query.iter_mut() {
+        cooldown.0 -= time.delta_secs();
+        if cooldown.0 <= 0.0 {
+            commands.entity(entity).remove::<ShipRocketCooldown>();
+        }
+    }
+}
+
+fn ship_rocket_update(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut query: Query<(
+        Entity,
+        &Transform,
+        &mut Velocity,
+        &mut Rotation,
+        &ShipRocket,
+    )>,
+    enemies: Query<&Transform, With<Enemy>>,
+    mut particles: EventWriter<SpawnParticles>,
+    mut missile_flight_sound: Query<(Entity, &mut AudioSink), With<MissileFlightSound>>,
+    sounds: Res<Sounds>,
+) {
+    for (entity, transform, mut velocity, mut rotation, _) in query.iter_mut() {
+        if let Some(enemy_transform) = enemies.iter().next() {
+            let pos = transform.translation.truncate();
+            let target = enemy_transform.translation.truncate();
+            let angle = (target - pos).to_angle();
+            rotation.0 = angle.to_degrees();
+            velocity.0 = velocity
+                .0
+                .lerp((target - pos).normalize() * 1000.0, time.delta_secs() * 2.0);
+            particles.write(SpawnParticles {
+                position: pos,
+                count: 1,
+            });
+        }
+    }
+    if query.is_empty() {
+        if missile_flight_sound.is_empty() {
+            return;
+        } else {
+            for (entity, sink) in missile_flight_sound.iter_mut() {
+                sink.pause();
+            }
+        }
+    } else {
+        if missile_flight_sound.is_empty() {
+            commands.spawn((
+                Name::new("Missile Flying Sound"),
+                MissileFlightSound,
+                AudioPlayer::new(sounds.missile_flight.clone()),
+                PlaybackSettings {
+                    mode: PlaybackMode::Loop,
+                    volume: Volume::Linear(0.3),
+                    ..default()
+                },
+            ));
+        } else {
+            for (entity, sink) in missile_flight_sound.iter_mut() {
+                sink.play();
+            }
+        }
+    }
+}
+
+fn collide_rocket(
+    mut commands: Commands,
+    mut collision_events: EventReader<CollisionEvent>,
+    mut particle_writer: EventWriter<SpawnParticles>,
+    rockets: Query<Entity, With<ShipRocket>>,
+    enemies: Query<(&Enemy, &Velocity)>,
+    sounds: Res<Sounds>,
+) {
+    for event in collision_events.read() {
+        if rockets.contains(event.entity_a) {
+            if let Ok((enemy, velocity)) = enemies.get(event.entity_b) {
+                // Handle collision between rocket and enemy
+                let contact = event.contact;
+                let contact_point = vec2(contact.point2.x, contact.point2.y);
+                commands.entity(event.entity_a).despawn();
+                commands.entity(event.entity_b).insert((
+                    Enemy {
+                        health: enemy.health - 50.0,
+                    },
+                    Velocity(velocity.0 + vec2(contact.normal1.x, contact.normal1.y) * 500.0),
+                ));
+                particle_writer.write(SpawnParticles {
+                    position: contact_point,
+                    count: 30,
+                });
+                info!("Rocket collided with enemy at {:?}", contact_point);
+                commands.spawn((
+                    Name::new("Boom Sound"),
+                    AudioPlayer::new(sounds.enemy_die.clone()),
+                    PlaybackSettings::DESPAWN,
+                ));
             }
         }
     }

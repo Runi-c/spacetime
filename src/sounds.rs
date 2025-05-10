@@ -10,6 +10,7 @@ pub fn plugin(app: &mut App) {
 
 fn spawn_music(mut commands: Commands, sounds: Res<Sounds>) {
     commands.spawn((
+        Name::new("Background Music"),
         AudioPlayer::new(sounds.music.clone()),
         PlaybackSettings::LOOP,
     ));
@@ -28,6 +29,9 @@ pub struct Sounds {
 
     #[asset(path = "sounds/asteroid_bump.ogg")]
     pub asteroid_bump: Handle<AudioSource>,
+
+    #[asset(path = "sounds/succ.ogg")]
+    pub succ: Handle<AudioSource>,
 
     #[asset(path = "sounds/switch.ogg")]
     pub switch: Handle<AudioSource>,
@@ -49,6 +53,12 @@ pub struct Sounds {
 
     #[asset(path = "sounds/rocket.ogg")]
     pub rocket: Handle<AudioSource>,
+
+    #[asset(path = "sounds/missile_launch.ogg")]
+    pub missile_launch: Handle<AudioSource>,
+
+    #[asset(path = "sounds/missile_flight.ogg")]
+    pub missile_flight: Handle<AudioSource>,
 
     #[asset(path = "sounds/player_death.ogg")]
     pub player_death: Handle<AudioSource>,

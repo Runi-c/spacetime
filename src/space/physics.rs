@@ -51,8 +51,8 @@ impl Rotation {
 pub struct Spin(pub f32);
 
 impl Spin {
-    pub fn random() -> Self {
-        Self(rand::random::<f32>() * 180.0 - 90.0)
+    pub fn random(range: f32) -> Self {
+        Self(rand::random::<f32>() * range * 2.0 - range)
     }
 }
 

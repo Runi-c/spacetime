@@ -10,6 +10,7 @@ pub enum ResourceType {
     Gas,
     Time,
     Ammo,
+    Rockets,
 }
 
 impl ResourceType {
@@ -19,6 +20,7 @@ impl ResourceType {
             ResourceType::Gas => "Gas".to_string(),
             ResourceType::Time => "Time".to_string(),
             ResourceType::Ammo => "Ammo".to_string(),
+            ResourceType::Rockets => "Rockets".to_string(),
         }
     }
 }
@@ -29,6 +31,7 @@ pub struct Resources {
     pub gas: f32,
     pub time: f32,
     pub ammo: f32,
+    pub rockets: f32,
 }
 
 impl Default for Resources {
@@ -37,7 +40,8 @@ impl Default for Resources {
             minerals: 10.0,
             gas: 0.0,
             time: 0.0,
-            ammo: 5.0,
+            ammo: 20.0,
+            rockets: 0.0,
         }
     }
 }
@@ -49,6 +53,7 @@ impl Resources {
             ResourceType::Gas => self.gas,
             ResourceType::Time => self.time,
             ResourceType::Ammo => self.ammo,
+            ResourceType::Rockets => self.rockets,
         }
     }
 
@@ -58,6 +63,7 @@ impl Resources {
             ResourceType::Gas => self.gas += amount,
             ResourceType::Time => self.time += amount,
             ResourceType::Ammo => self.ammo += amount,
+            ResourceType::Rockets => self.rockets += amount,
         }
     }
 }

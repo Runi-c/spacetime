@@ -10,6 +10,7 @@ use crate::{
     mesh::MeshLyonExtensions,
     resources::{ResourceType, Resources},
     scheduling::Sets,
+    sounds::Sounds,
     space::Ship,
     z_order::ZOrder,
 };
@@ -75,8 +76,9 @@ pub fn plugin(app: &mut App) {
                 tick_ammo_factory,
                 tick_hull_fixer,
                 tick_pipe_switch,
+                tick_rocket_factory,
             )
-                .in_set(Sets::Update),
+                .in_set(Sets::Physics),
             (color_inlet, observe_pipe_switches).in_set(Sets::PostUpdate),
         ),
     );
@@ -193,11 +195,16 @@ fn fill_outlet(
         let in_network = children.iter().find_map(|child| ports.get(child).ok());
         if let Some(in_network) = in_network {
             let network = networks.get(in_network.0).unwrap();
-            if network.resource == outlet.0 {
+            if network.resource == ResourceType::Rockets || network.resource == ResourceType::Ammo {
                 if let Ok(parent) = parents.get(network.source).map(|p| p.parent()) {
                     if let Ok(mut buffer) = buffers.get_mut(parent) {
-                        if buffer.1 > 0.0 && resources.get(outlet.0) < 10.0 {
-                            resources.add(outlet.0, 1.0);
+                        if buffer.1 > 0.0 && resources.get(network.resource) < 10.0 {
+                            info!(
+                                "Filling outlet: {:?} to {}",
+                                network.resource,
+                                resources.get(network.resource) + 1.0
+                            );
+                            resources.add(network.resource, 1.0);
                             buffer.1 -= 1.0;
                         }
                     }
@@ -397,6 +404,75 @@ pub fn hull_fixer(
     )
 }
 
+#[derive(Component, Clone)]
+#[require(Machine)]
+pub struct RocketFactory;
+
+pub fn rocket_factory(
+    meshes: &mut ResMut<Assets<Mesh>>,
+    materials: &mut ResMut<Assets<DitherMaterial>>,
+    flow_material: Handle<DitherMaterial>,
+) -> impl Bundle {
+    let ports = vec![
+        MachinePort {
+            side: Direction::Right,
+            flow: FlowDirection::Inlet,
+        },
+        MachinePort {
+            side: Direction::Down,
+            flow: FlowDirection::Inlet,
+        },
+        MachinePort {
+            side: Direction::Left,
+            flow: FlowDirection::Outlet,
+        },
+    ];
+    let mesh = meshes.add(Triangle2d::new(
+        vec2(TILE_SIZE * 0.25, -TILE_SIZE * 0.4),
+        vec2(-TILE_SIZE * 0.25, -TILE_SIZE * 0.4),
+        vec2(0.0, TILE_SIZE * 0.4),
+    ));
+    (
+        Name::new("Rocket Factory"),
+        Machine,
+        RocketFactory,
+        ShopItem::RocketFactory,
+        Buffer(ResourceType::Rockets, 0.0),
+        FactoryLayer,
+        Mesh2d(CONSTRUCTOR_MESH),
+        MeshMaterial2d(SOLID_WHITE),
+        ZOrder::MACHINE,
+        Tooltip(
+            "Rocket Factory".to_string(),
+            Some("Consumes minerals from below\nand gas from the right\nto produce rockets to the left".to_string()),
+        ),
+        Children::spawn((
+            Spawn((
+                Name::new("Rocket Factory Inner"),
+                FactoryLayer,
+                Mesh2d(CONSTRUCTOR_MESH),
+                MeshMaterial2d(materials.add(MetalDither {
+                    fill: 0.5,
+                    scale: 40.0,
+                })),
+                Transform::from_xyz(0.0, 0.0, 0.3),
+            )),
+            Spawn((
+                Name::new("Rocket Factory Inner 2"),
+                FactoryLayer,
+                Mesh2d(mesh),
+                MeshMaterial2d(SOLID_BLACK),
+                Transform::from_xyz(0.0, 0.0, 0.4),
+            )),
+            SpawnIter(
+                ports
+                    .into_iter()
+                    .map(move |port| machine_port(port, flow_material.clone())),
+            ),
+        )),
+    )
+}
+
 pub fn machine_port(port: MachinePort, flow_material: Handle<DitherMaterial>) -> impl Bundle {
     (
         Name::new("Machine Port"),
@@ -437,7 +513,7 @@ fn tick_ammo_factory(
                     {
                         let parent = parents.get(network.source).unwrap();
                         let source = buffers.get(parent.0).unwrap();
-                        if source.1 < 1.0 || buffer.1 >= 5.0 {
+                        if source.1 < 1.0 || buffer.1 >= 10.0 {
                             continue;
                         }
                         commands
@@ -445,7 +521,7 @@ fn tick_ammo_factory(
                             .insert(Buffer(source.0, source.1 - 1.0));
                         commands
                             .entity(entity)
-                            .insert(Buffer(ResourceType::Ammo, buffer.1 + 1.0));
+                            .insert(Buffer(ResourceType::Ammo, buffer.1 + 3.0));
                         info!(
                             "Filling ammo factory: {:?} to {}",
                             ResourceType::Ammo,
@@ -453,6 +529,55 @@ fn tick_ammo_factory(
                         );
                     }
                 }
+            }
+        }
+    }
+}
+
+fn tick_rocket_factory(
+    mut commands: Commands,
+    mut ticks: EventReader<FactoryTick>,
+    machines: Query<(Entity, &Buffer, &Children), (With<RocketFactory>, With<TileCoords>)>,
+    buffers: Query<&Buffer>,
+    parents: Query<&ChildOf>,
+    networks: Query<&PipeNetwork>,
+    ports: Query<(&MachinePort, &InNetwork)>,
+) {
+    for _ in ticks.read() {
+        for (entity, buffer, children) in machines.iter() {
+            let mut mineral_buffer = None;
+            let mut gas_buffer = None;
+            for child in children.iter() {
+                if let Ok((port, in_network)) = ports.get(child) {
+                    let network = networks.get(in_network.0).unwrap();
+                    if port.flow == FlowDirection::Inlet {
+                        let parent = parents.get(network.source).unwrap();
+                        let source = buffers.get(parent.0).unwrap();
+                        if source.1 < 3.0 || buffer.1 >= 5.0 {
+                            continue;
+                        }
+                        info!("Found inlet: {:?}", network.resource);
+                        if network.resource == ResourceType::Mineral {
+                            mineral_buffer = Some((parent.0, source));
+                        } else if network.resource == ResourceType::Gas {
+                            gas_buffer = Some((parent.0, source));
+                        }
+                    }
+                }
+            }
+            if let (Some((mineral_source, mineral_buffer)), Some((gas_source, gas_buffer))) =
+                (mineral_buffer, gas_buffer)
+            {
+                commands
+                    .entity(mineral_source)
+                    .insert(Buffer(ResourceType::Mineral, mineral_buffer.1 - 3.0));
+                commands
+                    .entity(gas_source)
+                    .insert(Buffer(ResourceType::Gas, gas_buffer.1 - 2.0));
+                commands
+                    .entity(entity)
+                    .insert(Buffer(ResourceType::Rockets, buffer.1 + 1.0));
+                info!("Made a rocket :)",);
             }
         }
     }
@@ -554,6 +679,7 @@ fn pipe_switch_click(
     mut grid: ResMut<Grid>,
     pipes: Query<&Pipe>,
     mut invalidate_networks: EventWriter<InvalidateNetworks>,
+    sounds: Res<Sounds>,
 ) {
     let target = trigger.target();
     if let Ok((switch, children, coords)) = pipe_switches.get(target) {
@@ -576,7 +702,6 @@ fn pipe_switch_click(
                                 .spawn((pipe_bundle(coords), ChildOf(grid.entity)))
                                 .id();
                             grid.get_building_mut(coords).unwrap().replace(pipe);
-                            invalidate_networks.write(InvalidateNetworks);
                         }
                     }
                     commands.entity(child).despawn();
@@ -586,6 +711,12 @@ fn pipe_switch_click(
                             flow: FlowDirection::Outlet,
                         },
                         flow_material.0.clone(),
+                    ));
+                    invalidate_networks.write(InvalidateNetworks);
+                    commands.spawn((
+                        Name::new("Switch Toggle Sound"),
+                        AudioPlayer::new(sounds.switch.clone()),
+                        PlaybackSettings::DESPAWN,
                     ));
                 }
             }
