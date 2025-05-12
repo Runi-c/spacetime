@@ -281,6 +281,9 @@ pub fn ammo_factory(
 #[require(Machine)]
 pub struct PipeSwitch;
 
+#[derive(Component, Clone)]
+pub struct PipeSwitchHandle;
+
 pub fn pipe_switch(
     meshes: &mut ResMut<Assets<Mesh>>,
     flow_material: Handle<DitherMaterial>,
@@ -331,6 +334,7 @@ pub fn pipe_switch(
             Spawn((
                 Name::new("Pipe Switch Handle"),
                 FactoryLayer,
+                PipeSwitchHandle,
                 Mesh2d(meshes.add(Mesh::fill_polygon(&vertices))),
                 MeshMaterial2d(SOLID_WHITE),
                 Transform::from_xyz(0.0, 0.0, 0.3),
@@ -680,6 +684,7 @@ fn pipe_switch_click(
     pipes: Query<&Pipe>,
     mut invalidate_networks: EventWriter<InvalidateNetworks>,
     sounds: Res<Sounds>,
+    handles: Query<&PipeSwitchHandle>,
 ) {
     let target = trigger.target();
     if let Ok((switch, children, coords)) = pipe_switches.get(target) {
@@ -692,6 +697,13 @@ fn pipe_switch_click(
                         Direction::Up => Direction::Right,
                         _ => unreachable!(),
                     };
+                    let handle = children.iter().find(|child| handles.contains(*child));
+                    if let Some(handle) = handle {
+                        commands.entity(handle).insert(
+                            Transform::from_xyz(0.0, 0.0, 0.3)
+                                .with_rotation(Quat::from_rotation_z(new_dir.angle())),
+                        );
+                    }
                     let old_coords = coords.0 + port.side.as_ivec2();
                     let new_coords = coords.0 + new_dir.as_ivec2();
                     for coords in [old_coords, new_coords] {

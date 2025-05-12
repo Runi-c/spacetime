@@ -6,6 +6,8 @@ use crate::{
     SCREEN_SIZE,
 };
 
+use super::machines::{Buffer, Inlet};
+
 pub fn plugin(app: &mut App) {
     app.add_systems(Startup, spawn_ui.in_set(Sets::Spawn))
         .add_systems(
@@ -135,12 +137,18 @@ fn update_ui(
     mut commands: Commands,
     resources: Res<Resources>,
     query: Query<(Entity, &ResourceDisplay)>,
+    inlets: Query<&Buffer, With<Inlet>>,
 ) {
     if !resources.is_changed() {
         return;
     }
     for (entity, resource_display) in query.iter() {
-        let amount = resources.get(resource_display.0);
+        let mut amount = resources.get(resource_display.0);
+        for buffer in inlets.iter() {
+            if buffer.0 == resource_display.0 {
+                amount += buffer.1;
+            }
+        }
         commands.entity(entity).insert(Text::new(format!(
             "{}: {}",
             resource_display.0.to_string(),

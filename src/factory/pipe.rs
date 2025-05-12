@@ -176,9 +176,10 @@ fn connect_pipes(
     connections: Query<(Option<&PipeTo>, Option<&PipeFrom>), With<Pipe>>,
     ports: Query<(Entity, &MachinePort)>,
     machines: Query<(&Machine, &Children)>,
-    grid: Res<Grid>,
+    mut grid: ResMut<Grid>,
 ) {
-    for (pipe, tile_pos) in added_pipes.iter() {
+    let mut iter = added_pipes.iter();
+    if let Some((pipe, tile_pos)) = iter.next() {
         let mut connected_to = false;
         let mut connected_from = false;
         for neighbor_dir in Direction::iter() {
@@ -208,6 +209,14 @@ fn connect_pipes(
                 }
             }
         }
+    }
+    for (pipe, coords) in iter {
+        // respawn other pipes so that only one connection happpens per frame
+        commands.entity(pipe).despawn();
+        let pipe = commands
+            .spawn((pipe_bundle(coords.0), ChildOf(grid.entity)))
+            .id();
+        grid.get_building_mut(coords.0).unwrap().replace(pipe);
     }
 }
 
