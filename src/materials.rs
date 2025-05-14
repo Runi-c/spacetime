@@ -9,7 +9,7 @@ use bitflags::bitflags;
 pub const SOLID_WHITE: Handle<ColorMaterial> = weak_handle!("10056343-43eb-4015-8e71-7a8f0b082d02");
 pub const SOLID_BLACK: Handle<ColorMaterial> = weak_handle!("03c8157f-caa4-4237-b037-599ed86834ba");
 
-pub fn plugin(app: &mut App) {
+pub(super) fn plugin(app: &mut App) {
     let mut materials = app.world_mut().resource_mut::<Assets<ColorMaterial>>();
     materials.insert(SOLID_WHITE.id(), ColorMaterial::from(Color::WHITE));
     materials.insert(SOLID_BLACK.id(), ColorMaterial::from(Color::BLACK));

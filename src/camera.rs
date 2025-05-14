@@ -2,7 +2,7 @@ use bevy::prelude::*;
 
 use crate::{layers::UILayer, scheduling::Sets};
 
-pub fn plugin(app: &mut App) {
+pub(super) fn plugin(app: &mut App) {
     app.add_systems(Startup, setup_camera.in_set(Sets::Init));
 }
 

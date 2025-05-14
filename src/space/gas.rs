@@ -18,10 +18,10 @@ use super::{
     bounds::ScreenBounds,
     collision::{Collider, CollisionEvent},
     physics::{Spin, Velocity},
-    Ship,
+    ship::Ship,
 };
 
-pub fn plugin(app: &mut App) {
+pub(super) fn plugin(app: &mut App) {
     app.add_systems(
         Update,
         (
@@ -108,7 +108,7 @@ fn succ_cloud(
     clouds: Query<&GasCloud>,
     ships: Query<Entity, With<Ship>>,
     mut resources: ResMut<Resources>,
-    succ_sound: Query<(Entity, &AudioSink), With<SuccSound>>,
+    succ_sound: Query<&AudioSink, With<SuccSound>>,
     sounds: Res<Sounds>,
     time: Res<Time>,
 ) {
@@ -132,7 +132,7 @@ fn succ_cloud(
                         ChildOf(ship),
                     ));
                 }
-                for (entity, sink) in succ_sound.iter() {
+                for sink in succ_sound.iter() {
                     sink.play();
                 }
             }
@@ -140,7 +140,7 @@ fn succ_cloud(
     }
 
     if !is_succ {
-        for (entity, sink) in succ_sound.iter() {
+        for sink in succ_sound.iter() {
             sink.pause();
         }
     }

@@ -4,7 +4,7 @@ use crate::{layers::FactoryLayer, scheduling::Sets, SCREEN_SIZE};
 
 use super::grid::{GRID_WIDTH, TILE_SIZE};
 
-pub fn plugin(app: &mut App) {
+pub(super) fn plugin(app: &mut App) {
     app.add_systems(Startup, setup_camera.in_set(Sets::Init));
 }
 
@@ -33,7 +33,7 @@ pub struct CursorPosition<'w, 's> {
 }
 
 impl<'w, 's> CursorPosition<'w, 's> {
-    pub fn world_pos(&self) -> Option<Vec2> {
+    pub fn world(&self) -> Option<Vec2> {
         if let (Ok(window), Ok((camera, camera_transform))) =
             (self.window.single(), self.camera.single())
         {
@@ -46,8 +46,8 @@ impl<'w, 's> CursorPosition<'w, 's> {
             None
         }
     }
-    pub fn tile_pos(&self) -> Option<IVec2> {
-        self.world_pos().map(|pos| {
+    pub fn tile(&self) -> Option<IVec2> {
+        self.world().map(|pos| {
             ((pos + Vec2::splat(GRID_WIDTH * 0.5)) / TILE_SIZE)
                 .floor()
                 .as_ivec2()

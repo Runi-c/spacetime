@@ -23,7 +23,7 @@ pub const PIPE_MESH_INNER: Handle<Mesh> = weak_handle!("b67e0c8e-a3ad-4477-b865-
 pub const PIPE_BRIDGE: Handle<Mesh> = weak_handle!("19d40193-0720-4cf3-accd-445eb2d6f3f2");
 pub const PIPE_BRIDGE_INNER: Handle<Mesh> = weak_handle!("61135ba2-b044-4dc6-bb2e-41c3c1f4aadf");
 
-pub fn plugin(app: &mut App) {
+pub(super) fn plugin(app: &mut App) {
     let mut meshes = app.world_mut().resource_mut::<Assets<Mesh>>();
     meshes.insert(
         PIPE_MESH.id(),
@@ -139,14 +139,16 @@ fn draw_pipe(
     if picked_up_item.is_some() {
         return;
     }
-    if let Some(tile_pos) = cursor_pos.tile_pos() {
+    if let Some(tile_pos) = cursor_pos.tile() {
         if let Some(tile_entity) = grid.get_tile(tile_pos) {
             let coords = tiles.get(tile_entity).unwrap();
             if buttons.pressed(MouseButton::Left) {
                 if grid.get_building(tile_pos).is_none() {
                     info!("Drawing pipe at tile: {:?}", coords);
-                    let pipe = commands.spawn((pipe_bundle(tile_pos), ChildOf(grid.entity)));
-                    grid.get_building_mut(tile_pos).unwrap().replace(pipe.id());
+                    let pipe = commands
+                        .spawn((pipe_bundle(tile_pos), ChildOf(grid.entity)))
+                        .id();
+                    grid.insert_building(tile_pos, pipe);
                     events.write(InvalidateNetworks);
                 }
             } else if buttons.pressed(MouseButton::Right) {
@@ -161,7 +163,7 @@ fn draw_pipe(
                                 }
                             }
                         }
-                        grid.get_building_mut(tile_pos).unwrap().take();
+                        grid.remove_building(tile_pos);
                         events.write(InvalidateNetworks);
                     }
                 }
@@ -216,7 +218,7 @@ fn connect_pipes(
         let pipe = commands
             .spawn((pipe_bundle(coords.0), ChildOf(grid.entity)))
             .id();
-        grid.get_building_mut(coords.0).unwrap().replace(pipe);
+        grid.insert_building(coords.0, pipe);
     }
 }
 
@@ -322,13 +324,15 @@ pub fn pipe_bridge(
         Name::new("Pipe Bridge"),
         PipeBridge,
         FactoryLayer,
+        Pickable::IGNORE, // https://github.com/bevyengine/bevy/issues/19181
         Mesh2d(PIPE_BRIDGE),
         MeshMaterial2d(SOLID_WHITE),
-        Transform::from_xyz(offset.x, offset.y, 0.0)
+        Transform::from_xyz(offset.x, offset.y, 0.05)
             .with_rotation(Quat::from_rotation_z(dir.angle())),
         children![(
             Name::new("Pipe Bridge Inner"),
             FactoryLayer,
+            Pickable::IGNORE, // https://github.com/bevyengine/bevy/issues/19181
             Mesh2d(PIPE_BRIDGE_INNER),
             MeshMaterial2d(flow_material),
             Transform::from_xyz(0.0, 0.0, 0.1),

@@ -9,8 +9,8 @@ use crate::{
 
 use super::physics::{Rotation, Velocity};
 
-pub fn plugin(app: &mut App) {
-    app.add_event::<SpawnParticles>().add_systems(
+pub(super) fn plugin(app: &mut App) {
+    app.add_event::<EmitParticles>().add_systems(
         Update,
         (
             spawn_particles.in_set(Sets::Update),
@@ -24,14 +24,14 @@ pub struct Particle {
     pub lifetime: f32,
 }
 #[derive(Event)]
-pub struct SpawnParticles {
+pub struct EmitParticles {
     pub position: Vec2,
     pub count: usize,
 }
 
 pub fn spawn_particles(
     mut commands: Commands,
-    mut reader: EventReader<SpawnParticles>,
+    mut reader: EventReader<EmitParticles>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<DitherMaterial>>,
 ) {

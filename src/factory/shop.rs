@@ -1,4 +1,4 @@
-use bevy::{prelude::*, window::PrimaryWindow};
+use bevy::prelude::*;
 
 use crate::{
     factory::{
@@ -14,13 +14,13 @@ use crate::{
 };
 
 use super::{
-    camera::{CursorPosition, FactoryCamera},
+    camera::CursorPosition,
     grid::{Grid, TileCoords, TILE_SIZE},
     machines::{ammo_factory, hull_fixer, pipe_switch, rocket_factory},
     pipe::{Pipe, PipeFlowMaterial},
 };
 
-pub fn plugin(app: &mut App) {
+pub(super) fn plugin(app: &mut App) {
     app.add_systems(Startup, setup_shop.in_set(Sets::Spawn))
         .add_systems(Update, shop_item_drag.in_set(Sets::Input))
         .add_observer(observe_shop_items)
@@ -38,6 +38,9 @@ pub enum ShopItem {
     RocketFactory,
 }
 
+#[derive(Component)]
+pub struct ShopOrder(pub usize);
+
 #[derive(Resource)]
 pub struct PickedUpItem(pub Entity);
 
@@ -54,12 +57,23 @@ fn setup_shop(
             Transform::from_xyz(0.0, -SCREEN_SIZE.y / 2.0 + 100.0, 0.0),
             ZOrder::SHOP,
             Visibility::Visible,
-            Pickable::IGNORE,
             children![
-                ammo_factory(&mut materials, flow_material.0.clone()),
-                pipe_switch(&mut meshes, flow_material.0.clone()),
-                hull_fixer(&mut meshes, &mut materials, flow_material.0.clone()),
-                rocket_factory(&mut meshes, &mut materials, flow_material.0.clone()),
+                (
+                    ShopOrder(0),
+                    ammo_factory(&mut materials, flow_material.0.clone()),
+                ),
+                (
+                    ShopOrder(1),
+                    pipe_switch(&mut meshes, flow_material.0.clone()),
+                ),
+                (
+                    ShopOrder(2),
+                    hull_fixer(&mut meshes, &mut materials, flow_material.0.clone()),
+                ),
+                (
+                    ShopOrder(3),
+                    rocket_factory(&mut meshes, &mut materials, flow_material.0.clone()),
+                )
             ],
         ))
         .id();
@@ -92,21 +106,21 @@ fn shop_item_drag_start(
 fn shop_item_drag_end(
     trigger: Trigger<Pointer<DragEnd>>,
     mut commands: Commands,
-    mut grid: ResMut<Grid>,
+    mut invalidate: EventWriter<InvalidateNetworks>,
+    cursor_pos: CursorPosition,
     pipes: Query<&Pipe>,
     shop_items: Query<(&ShopItem, Option<&TileCoords>)>,
-    cursor_pos: CursorPosition,
+    mut grid: ResMut<Grid>,
+    shop: Res<Shop>,
+    sounds: Res<Sounds>,
+    flow_material: Res<PipeFlowMaterial>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<DitherMaterial>>,
-    flow_material: Res<PipeFlowMaterial>,
-    shop: Res<Shop>,
-    mut invalidate: EventWriter<InvalidateNetworks>,
-    sounds: Res<Sounds>,
-) {
+) -> Result {
     let target = trigger.target();
-    let (shop_item, coords) = shop_items.get(target).unwrap();
+    let (shop_item, coords) = shop_items.get(target)?;
     commands.remove_resource::<PickedUpItem>();
-    if let Some(tile_pos) = cursor_pos.tile_pos() {
+    if let Some(tile_pos) = cursor_pos.tile() {
         info!("Dropped building on position: {:?}", tile_pos);
         if grid.get_tile(tile_pos).is_some() && grid.get_building(tile_pos).is_none() {
             let spawned = match shop_item {
@@ -131,7 +145,7 @@ fn shop_item_drag_end(
                     ))
                     .id(),
             };
-            grid.get_building_mut(tile_pos).unwrap().replace(spawned);
+            grid.insert_building(tile_pos, spawned);
             commands
                 .entity(spawned)
                 .insert((TileCoords(tile_pos), ChildOf(grid.entity)));
@@ -144,21 +158,19 @@ fn shop_item_drag_end(
                     let pipe = commands
                         .spawn((pipe_bundle(tile_pos + dir.as_ivec2()), ChildOf(grid.entity)))
                         .id();
-                    grid.get_building_mut(tile_pos + dir.as_ivec2())
-                        .unwrap()
-                        .replace(pipe);
+                    grid.insert_building(tile_pos + dir.as_ivec2(), pipe);
                 }
             }
         }
     }
-    if coords.is_none() {
+    if let Some(coords) = coords {
+        // thrown away built item
+        commands.entity(target).despawn();
+        grid.remove_building(coords.0);
+    } else {
         // return to shop
         commands.entity(target).insert(ChildOf(shop.0));
         commands.trigger(InvalidateShopLayout);
-    } else {
-        // thrown away built item
-        commands.entity(target).despawn();
-        grid.get_building_mut(coords.unwrap().0).unwrap().take();
     }
     invalidate.write(InvalidateNetworks);
     commands.spawn((
@@ -166,19 +178,17 @@ fn shop_item_drag_end(
         AudioPlayer::new(sounds.place_machine.clone()),
         PlaybackSettings::DESPAWN,
     ));
+
+    Ok(())
 }
 
 fn shop_item_drag(
     mut shop_items: Query<&mut Transform, With<ShopItem>>,
     picked_up_item: Option<Res<PickedUpItem>>,
-    window: Query<&Window, With<PrimaryWindow>>,
-    camera: Query<(&Camera, &GlobalTransform), With<FactoryCamera>>,
+    cursor_pos: CursorPosition,
 ) {
     if let Some(picked_up_item) = picked_up_item {
-        let window = window.single().unwrap();
-        let (camera, camera_transform) = camera.single().unwrap();
-        let screen_pos = window.cursor_position().unwrap_or_default();
-        if let Ok(world_pos) = camera.viewport_to_world_2d(camera_transform, screen_pos) {
+        if let Some(world_pos) = cursor_pos.world() {
             if let Ok(mut transform) = shop_items.get_mut(picked_up_item.0) {
                 transform.translation.x = world_pos.x;
                 transform.translation.y = world_pos.y;
@@ -193,12 +203,12 @@ fn shop_item_drag(
 struct InvalidateShopLayout;
 fn shop_layout(
     _trigger: Trigger<InvalidateShopLayout>,
-    mut shop_items: Query<&mut Transform, (With<ShopItem>, Without<TileCoords>)>,
+    mut shop_items: Query<(&mut Transform, &ShopOrder)>,
 ) {
     let num = shop_items.iter().count() as f32;
     let width = (TILE_SIZE * 1.5) * num;
-    for (i, mut transform) in shop_items.iter_mut().enumerate() {
-        transform.translation.x = -width / 2.0 + TILE_SIZE * (i as f32 + 0.5) * 1.5;
+    for (mut transform, index) in shop_items.iter_mut() {
+        transform.translation.x = (-width / 2.0 + TILE_SIZE * (index.0 as f32 + 0.5) * 1.5).round(); // rounded to help with correct dithering
         transform.translation.y = 0.0;
     }
 }

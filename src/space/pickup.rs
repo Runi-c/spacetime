@@ -1,5 +1,4 @@
 use bevy::{math::FloatPow, prelude::*};
-use lyon_tessellation::StrokeOptions;
 use rand::Rng;
 
 use crate::{
@@ -12,21 +11,13 @@ use crate::{
 };
 
 use super::{
-    asteroid::make_asteroid_polygon,
-    collision::{Collider, CollisionEvent},
+    asteroid::generate_asteroid_shape,
     physics::{Spin, Velocity},
     ship::Ship,
 };
 
-pub fn plugin(app: &mut App) {
-    app.add_systems(
-        Update,
-        (
-            pickup_magnet.in_set(Sets::Physics),
-            collect_pickup.in_set(Sets::Update),
-        )
-            .chain(),
-    );
+pub(super) fn plugin(app: &mut App) {
+    app.add_systems(Update, pickup_update.in_set(Sets::Update));
 }
 
 #[derive(Component, Clone)]
@@ -35,70 +26,54 @@ pub struct Pickup {
     pub amount: f32,
 }
 
-fn collect_pickup(
-    mut commands: Commands,
-    mut collisions: EventReader<CollisionEvent>,
-    mut resources: ResMut<Resources>,
-    ship_query: Query<&Ship>,
-    pickup_query: Query<&Pickup>,
-) {
-    for event in collisions.read() {
-        if ship_query.contains(event.entity_a) {
-            if let Ok(pickup) = pickup_query.get(event.entity_b) {
-                match pickup.resource {
-                    ResourceType::Mineral => resources.minerals += pickup.amount,
-                    ResourceType::Gas => resources.gas += pickup.amount,
-                    ResourceType::Time => resources.time += pickup.amount,
-                    _ => panic!("Unknown resource type"),
-                }
-                commands.entity(event.entity_b).despawn();
-            }
-        }
+impl Pickup {
+    pub fn new(resource: ResourceType, amount: f32) -> Self {
+        Self { resource, amount }
     }
 }
 
-const MAGNETIC_PULL: f32 = 150.0;
-fn pickup_magnet(
+const MAGNET_RADIUS: f32 = 150.0;
+const MAGNET_FORCE: f32 = 100.0;
+const PICKUP_RADIUS: f32 = 20.0;
+fn pickup_update(
     mut commands: Commands,
     ship_query: Query<&Transform, With<Ship>>,
-    pickup_query: Query<(Entity, &Transform), With<Pickup>>,
+    pickup_query: Query<(Entity, &Pickup, &Transform)>,
+    mut resources: ResMut<Resources>,
 ) {
     for ship_transform in ship_query.iter() {
-        for (pickup, pickup_transform) in pickup_query.iter() {
+        for (pickup_entity, pickup, pickup_transform) in pickup_query.iter() {
             let distance = ship_transform
                 .translation
                 .truncate()
                 .distance(pickup_transform.translation.truncate());
-            if distance < MAGNETIC_PULL {
-                let magnitude = 2.0 - (distance / MAGNETIC_PULL);
+            if distance < PICKUP_RADIUS {
+                resources.add(pickup.resource, pickup.amount);
+                commands.entity(pickup_entity).despawn();
+            } else if distance < MAGNET_RADIUS {
+                let magnitude = 2.0 - (distance / MAGNET_RADIUS);
                 let direction = (ship_transform.translation - pickup_transform.translation)
                     .normalize()
                     .truncate();
                 commands
-                    .entity(pickup)
-                    .insert(Velocity(direction * magnitude.squared() * 100.0));
+                    .entity(pickup_entity)
+                    .insert(Velocity(direction * magnitude.squared() * MAGNET_FORCE));
             }
         }
     }
 }
 
-pub fn asteroid_piece(
+pub fn mineral_pickup(
     pos: Vec2,
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<DitherMaterial>>,
 ) -> impl Bundle {
-    let vertices = make_asteroid_polygon(5..=7, 10.0..=20.0);
+    let vertices = generate_asteroid_shape(5..=7, 10.0..=20.0);
     (
         Name::new("Mineral Pickup"),
-        Pickup {
-            resource: ResourceType::Mineral,
-            amount: 2.5,
-        },
+        Pickup::new(ResourceType::Mineral, 2.5),
         SpaceLayer,
-        Mesh2d(meshes.add(Mesh::stroke_polygon(
-            &vertices,
-            &StrokeOptions::default().with_line_width(2.0),
-        ))),
+        Mesh2d(meshes.add(Mesh::stroke_polygon(&vertices, 2.0))),
         MeshMaterial2d(SOLID_WHITE),
         Transform::from_xyz(
             pos.x + rand::thread_rng().gen_range(-10.0..=10.0),
@@ -106,11 +81,10 @@ pub fn asteroid_piece(
             0.0,
         ),
         ZOrder::PICKUP,
-        Collider::from_vertices(&vertices),
         Velocity::random(25.0..40.0),
         Spin::random(90.0),
         children![(
-            Name::new("Asteroid Fragment"),
+            Name::new("Mineral Pickup Inner"),
             SpaceLayer,
             Mesh2d(meshes.add(Mesh::fill_polygon(&vertices))),
             MeshMaterial2d(materials.add(RockyDither {
@@ -122,7 +96,7 @@ pub fn asteroid_piece(
     )
 }
 
-pub fn time_piece(
+pub fn time_pickup(
     pos: Vec2,
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<DitherMaterial>>,
@@ -134,16 +108,10 @@ pub fn time_piece(
         vec2(0.0, -10.0),
     ];
     (
-        Name::new("Time Piece"),
-        Pickup {
-            resource: ResourceType::Time,
-            amount: 5.0,
-        },
+        Name::new("Time Pickup"),
+        Pickup::new(ResourceType::Time, 5.0),
         SpaceLayer,
-        Mesh2d(meshes.add(Mesh::stroke_polygon(
-            &vertices,
-            &StrokeOptions::default().with_line_width(2.0),
-        ))),
+        Mesh2d(meshes.add(Mesh::stroke_polygon(&vertices, 2.0))),
         MeshMaterial2d(SOLID_WHITE),
         Transform::from_xyz(
             pos.x + rand::thread_rng().gen_range(-10.0..=10.0),
@@ -151,11 +119,10 @@ pub fn time_piece(
             0.0,
         ),
         ZOrder::PICKUP,
-        Collider::from_vertices(&vertices),
         Velocity::random(25.0..40.0),
         Spin::random(45.0),
         children![(
-            Name::new("Time Piece"),
+            Name::new("Time Pickup Inner"),
             SpaceLayer,
             Mesh2d(meshes.add(Mesh::fill_polygon(&vertices))),
             MeshMaterial2d(materials.add(GassyDither {

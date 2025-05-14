@@ -1,13 +1,13 @@
 use std::time::Duration;
 
 use bevy::prelude::*;
-use lyon_tessellation::StrokeOptions;
 use rand::{distributions::uniform::SampleRange, Rng};
 
 use crate::{
     layers::SpaceLayer,
     materials::{DitherMaterial, RockyDither, SOLID_WHITE},
     mesh::MeshLyonExtensions,
+    resources::{ResourceType, Resources},
     scheduling::Sets,
     sounds::Sounds,
     z_order::ZOrder,
@@ -16,20 +16,37 @@ use crate::{
 use super::{
     bounds::ScreenBounds,
     collision::{Collider, CollisionEvent},
-    particles::SpawnParticles,
+    particles::EmitParticles,
     physics::{Spin, Velocity},
-    pickup::{asteroid_piece, time_piece},
+    pickup::{mineral_pickup, time_pickup},
     ship::Ship,
 };
 
-pub fn plugin(app: &mut App) {
+pub(super) fn plugin(app: &mut App) {
     app.add_systems(
         Update,
         (
+            asteroid_spawn_timer.in_set(Sets::PreUpdate),
             collide_asteroid.in_set(Sets::Update),
-            (asteroid_timer, break_asteroid, display_asteroid_health).in_set(Sets::PostUpdate),
+            (break_asteroid, display_asteroid_health).in_set(Sets::PostUpdate),
         ),
     );
+}
+
+pub fn generate_asteroid_shape(
+    vertex_range: impl SampleRange<i32>,
+    radius_range: impl SampleRange<f32> + Clone,
+) -> Vec<Vec2> {
+    let mut vertices = vec![];
+    let corner_count = rand::thread_rng().gen_range(vertex_range);
+    for i in 0..corner_count {
+        let radius = rand::thread_rng().gen_range(radius_range.clone());
+        let angle = (i as f32 / corner_count as f32) * std::f32::consts::PI * 2.0;
+        let x = angle.cos() * radius;
+        let y = angle.sin() * radius;
+        vertices.push(vec2(x, y));
+    }
+    vertices
 }
 
 #[derive(Component, Clone)]
@@ -37,7 +54,7 @@ pub struct Asteroid {
     pub health: f32,
 }
 
-fn asteroid_timer(
+fn asteroid_spawn_timer(
     mut commands: Commands,
     time: Res<Time>,
     mut timer: Local<Option<Timer>>,
@@ -60,39 +77,21 @@ fn asteroid_timer(
     }
 }
 
-pub fn make_asteroid_polygon(
-    vertex_range: impl SampleRange<i32>,
-    radius_range: impl SampleRange<f32> + Clone,
-) -> Vec<Vec2> {
-    let mut vertices = vec![];
-    let corner_count = rand::thread_rng().gen_range(vertex_range);
-    for i in 0..corner_count {
-        let radius = rand::thread_rng().gen_range(radius_range.clone());
-        let angle = (i as f32 / corner_count as f32) * std::f32::consts::PI * 2.0;
-        let x = angle.cos() * radius;
-        let y = angle.sin() * radius;
-        vertices.push(vec2(x, y));
-    }
-    vertices
-}
-
 fn spawn_asteroid(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<DitherMaterial>>,
     bounds: ScreenBounds,
 ) {
+    let vertices = generate_asteroid_shape(9..=15, 25.0..=50.0);
+    let mesh = Mesh::stroke_polygon(&vertices, 5.0);
     let pos = bounds.random_outside() * 1.2;
-    let vertices = make_asteroid_polygon(9..=15, 25.0..=50.0);
     let target = bounds.random_inside() * 0.8;
     commands.spawn((
         Name::new("Asteroid"),
         Asteroid { health: 100.0 },
         SpaceLayer,
-        Mesh2d(meshes.add(Mesh::stroke_polygon(
-            &vertices,
-            &StrokeOptions::default().with_line_width(5.0),
-        ))),
+        Mesh2d(meshes.add(mesh)),
         MeshMaterial2d(SOLID_WHITE),
         Transform::from_xyz(pos.x, pos.y, 0.0),
         ZOrder::ASTEROID,
@@ -114,42 +113,39 @@ fn spawn_asteroid(
 fn collide_asteroid(
     mut commands: Commands,
     mut collision_events: EventReader<CollisionEvent>,
-    mut particle_writer: EventWriter<SpawnParticles>,
+    mut particles: EventWriter<EmitParticles>,
     asteroids: Query<&Velocity, With<Asteroid>>,
-    ships: Query<(&Ship, &Transform, &Velocity)>,
+    ship: Single<(Entity, &Transform, &Velocity), With<Ship>>,
     sounds: Res<Sounds>,
+    mut resources: ResMut<Resources>,
 ) {
+    let (ship, ship_transform, ship_velocity) = *ship;
     for event in collision_events.read() {
-        if asteroids.contains(event.entity_a) {
-            if ships.contains(event.entity_b) {
+        if let Ok(asteroid_velocity) = asteroids.get(event.entity_a) {
+            if event.entity_b == ship {
                 // Handle collision between asteroid and ship
-                let asteroid_velocity = asteroids.get(event.entity_a).unwrap();
-                let contact = event.contact;
-                let (ship, transform, velocity) = ships.get(event.entity_b).unwrap();
-                let contact_point = vec2(contact.point2.x, contact.point2.y);
-                let contact_normal = vec2(contact.normal1.x, contact.normal1.y);
+                let contact = &event.contact;
+                resources.add(ResourceType::Health, -10.0);
                 commands.entity(event.entity_b).insert((
-                    Ship {
-                        health: ship.health - 10.0,
-                    },
                     Transform::from_translation(
-                        transform.translation + contact_normal.extend(0.0) * -(contact.dist - 1.0),
+                        ship_transform.translation
+                            + contact.normal.extend(0.0) * -(contact.dist - 1.0),
                     ),
                     Velocity(
-                        contact_normal * (velocity.0.length() * 0.5).max(100.0)
+                        contact.normal * (ship_velocity.0.length() * 0.5).max(100.0)
                             + asteroid_velocity.0 * 0.5,
                     ),
                 ));
-                particle_writer.write(SpawnParticles {
-                    position: contact_point,
-                    count: 10,
-                });
-                info!("Ship collided with asteroid at {:?}", contact_point);
                 commands.spawn((
                     Name::new("Asteroid Bump Sound"),
                     AudioPlayer::new(sounds.asteroid_bump.clone()),
                     PlaybackSettings::DESPAWN,
                 ));
+                particles.write(EmitParticles {
+                    position: contact.point_a,
+                    count: 10,
+                });
+                info!("Ship collided with asteroid at {:?}", contact.point_a);
             }
         }
     }
@@ -166,14 +162,14 @@ fn break_asteroid(
         if asteroid.health <= 0.0 {
             commands.entity(entity).despawn();
             for _ in 0..4 {
-                commands.spawn(asteroid_piece(
+                commands.spawn(mineral_pickup(
                     transform.translation.truncate(),
                     &mut meshes,
                     &mut materials,
                 ));
             }
             if rand::thread_rng().gen_bool(0.5) {
-                commands.spawn(time_piece(
+                commands.spawn(time_pickup(
                     transform.translation.truncate(),
                     &mut meshes,
                     &mut materials,

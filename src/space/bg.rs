@@ -7,7 +7,8 @@ use crate::{
     z_order::ZOrder,
     SCREEN_SIZE,
 };
-pub fn plugin(app: &mut App) {
+
+pub(super) fn plugin(app: &mut App) {
     app.add_systems(Startup, spawn_space_bg.in_set(Sets::Spawn));
 }
 

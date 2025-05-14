@@ -4,7 +4,7 @@ use rand::Rng;
 use super::camera::SpaceCamera;
 
 #[derive(SystemParam)]
-pub struct ScreenBounds<'w, 's> {
+pub(super) struct ScreenBounds<'w, 's> {
     camera: Query<'w, 's, &'static Projection, With<SpaceCamera>>,
 }
 

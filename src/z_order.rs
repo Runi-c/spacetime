@@ -1,9 +1,7 @@
 use bevy::prelude::*;
 
-use crate::scheduling::Sets;
-
-pub fn plugin(app: &mut App) {
-    app.add_systems(Update, apply_z_order.in_set(Sets::PostUpdate));
+pub(super) fn plugin(app: &mut App) {
+    app.add_observer(on_insert_z_order);
 }
 
 #[derive(Component, Clone)]
@@ -23,8 +21,11 @@ impl ZOrder {
     pub const SHOP: Self = Self(20.0);
 }
 
-fn apply_z_order(mut query: Query<(&ZOrder, &mut Transform), Changed<ZOrder>>) {
-    for (z_order, mut transform) in query.iter_mut() {
-        transform.translation.z = z_order.0;
-    }
+fn on_insert_z_order(
+    trigger: Trigger<OnInsert, ZOrder>,
+    mut query: Query<(&ZOrder, &mut Transform)>,
+) {
+    let entity = trigger.target();
+    let (z_order, mut transform) = query.get_mut(entity).unwrap();
+    transform.translation.z = z_order.0;
 }

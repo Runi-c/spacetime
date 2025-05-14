@@ -10,11 +10,10 @@ mod gas;
 mod particles;
 mod physics;
 mod pickup;
+mod restart;
 mod ship;
 
-pub use ship::Ship;
-
-pub fn plugin(app: &mut App) {
+pub(super) fn plugin(app: &mut App) {
     app.add_plugins((
         asteroid::plugin,
         bg::plugin,
@@ -25,6 +24,7 @@ pub fn plugin(app: &mut App) {
         particles::plugin,
         physics::plugin,
         pickup::plugin,
+        restart::plugin,
         ship::plugin,
     ));
 }

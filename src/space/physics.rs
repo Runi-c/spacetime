@@ -7,7 +7,7 @@ use crate::scheduling::Sets;
 
 use super::camera::SpaceCamera;
 
-pub fn plugin(app: &mut App) {
+pub(super) fn plugin(app: &mut App) {
     app.add_systems(
         Update,
         (

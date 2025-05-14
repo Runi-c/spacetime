@@ -1,6 +1,6 @@
 use bevy::{asset::weak_handle, ecs::spawn::SpawnIter, prelude::*};
 use lyon_tessellation::{
-    geom::{euclid::Point2D, Box2D},
+    geom::Box2D,
     path::{builder::BorderRadii, Winding},
 };
 
@@ -11,7 +11,6 @@ use crate::{
     resources::{ResourceType, Resources},
     scheduling::Sets,
     sounds::Sounds,
-    space::Ship,
     z_order::ZOrder,
 };
 
@@ -32,20 +31,10 @@ pub const CONSTRUCTOR_MESH: Handle<Mesh> = weak_handle!("4ff209b3-3fcf-46ea-8449
 pub const CONSTRUCTOR_MESH_INNER: Handle<Mesh> =
     weak_handle!("7470eec1-4214-45db-a106-ef0bf961d9f2");
 
-pub fn plugin(app: &mut App) {
+pub(super) fn plugin(app: &mut App) {
     let mut meshes = app.world_mut().resource_mut::<Assets<Mesh>>();
-    meshes.insert(
-        INLET_MESH.id(),
-        Mesh::fill_with(|builder| {
-            builder.add_circle(Point2D::zero(), TILE_SIZE * 0.4 + 2.0, Winding::Positive);
-        }),
-    );
-    meshes.insert(
-        INLET_MESH_INNER.id(),
-        Mesh::fill_with(|builder| {
-            builder.add_circle(Point2D::zero(), TILE_SIZE * 0.4, Winding::Positive);
-        }),
-    );
+    meshes.insert(INLET_MESH.id(), Circle::new(TILE_SIZE * 0.4 + 2.0).into());
+    meshes.insert(INLET_MESH_INNER.id(), Circle::new(TILE_SIZE * 0.4).into());
     meshes.insert(
         CONSTRUCTOR_MESH.id(),
         Mesh::fill_with(|builder| {
@@ -111,6 +100,7 @@ pub fn inlet(
     flow_material: Handle<DitherMaterial>,
 ) -> impl Bundle {
     (
+        Name::new(format!("{} Inlet", resource.to_string())),
         Inlet(resource),
         Buffer(resource, 0.0),
         FactoryLayer,
@@ -139,17 +129,17 @@ pub fn inlet(
 
 #[derive(Component, Clone)]
 #[require(Machine)]
-pub struct Outlet(pub ResourceType);
+pub struct Outlet;
 
 pub fn outlet(
-    resource: ResourceType,
     coords: IVec2,
     dir: Direction,
     material: Handle<DitherMaterial>,
     flow_material: Handle<DitherMaterial>,
 ) -> impl Bundle {
     (
-        Outlet(resource),
+        Name::new("Outlet"),
+        Outlet,
         FactoryLayer,
         Mesh2d(INLET_MESH),
         MeshMaterial2d(SOLID_WHITE),
@@ -184,14 +174,14 @@ fn fill_inlet(mut inlets: Query<(&mut Buffer, &Inlet)>, mut resources: ResMut<Re
 }
 
 fn fill_outlet(
-    outlets: Query<(&Outlet, &Children)>,
+    outlets: Query<&Children, With<Outlet>>,
     ports: Query<&InNetwork>,
     mut resources: ResMut<Resources>,
     networks: Query<&PipeNetwork>,
     mut buffers: Query<&mut Buffer>,
     parents: Query<&ChildOf>,
 ) {
-    for (outlet, children) in outlets.iter() {
+    for children in outlets.iter() {
         let in_network = children.iter().find_map(|child| ports.get(child).ok());
         if let Some(in_network) = in_network {
             let network = networks.get(in_network.0).unwrap();
@@ -259,7 +249,7 @@ pub fn ammo_factory(
         ),
         Children::spawn((
             Spawn((
-                Name::new("Test Machine Inner"),
+                Name::new("Ammo Factory Inner"),
                 FactoryLayer,
                 Mesh2d(CONSTRUCTOR_MESH_INNER),
                 MeshMaterial2d(materials.add(MetalDither {
@@ -381,7 +371,7 @@ pub fn hull_fixer(
         ShopItem::HullFixer,
         Buffer(ResourceType::Mineral, 0.0),
         FactoryLayer,
-        Mesh2d(mesh.clone()),
+        Mesh2d(CONSTRUCTOR_MESH),
         MeshMaterial2d(SOLID_WHITE),
         ZOrder::MACHINE,
         Tooltip(
@@ -454,7 +444,7 @@ pub fn rocket_factory(
             Spawn((
                 Name::new("Rocket Factory Inner"),
                 FactoryLayer,
-                Mesh2d(CONSTRUCTOR_MESH),
+                Mesh2d(CONSTRUCTOR_MESH_INNER),
                 MeshMaterial2d(materials.add(MetalDither {
                     fill: 0.5,
                     scale: 40.0,
@@ -480,8 +470,8 @@ pub fn rocket_factory(
 pub fn machine_port(port: MachinePort, flow_material: Handle<DitherMaterial>) -> impl Bundle {
     (
         Name::new("Machine Port"),
-        InheritedVisibility::VISIBLE,
         Transform::IDENTITY,
+        Visibility::Inherited,
         children![pipe_bridge(
             port.flow == FlowDirection::Inlet,
             port.side,
@@ -590,15 +580,15 @@ fn tick_rocket_factory(
 fn tick_hull_fixer(
     mut commands: Commands,
     mut ticks: EventReader<FactoryTick>,
-    machines: Query<(Entity, &Children), (With<HullFixer>, With<TileCoords>)>,
+    machines: Query<&Children, (With<HullFixer>, With<TileCoords>)>,
     buffers: Query<&Buffer>,
     parents: Query<&ChildOf>,
     networks: Query<&PipeNetwork>,
     ports: Query<(&MachinePort, &InNetwork)>,
-    ship: Query<(Entity, &Ship)>,
+    mut resources: ResMut<Resources>,
 ) {
     for _ in ticks.read() {
-        for (entity, children) in machines.iter() {
+        for children in machines.iter() {
             for child in children.iter() {
                 if let Ok((port, in_network)) = ports.get(child) {
                     let network = networks.get(in_network.0).unwrap();
@@ -610,20 +600,13 @@ fn tick_hull_fixer(
                         if source.1 < 1.0 {
                             continue;
                         }
-                        commands
-                            .entity(parent.0)
-                            .insert(Buffer(source.0, source.1 - 1.0));
-                        for (ship_entity, ship) in ship.iter() {
-                            if ship.health < 100.0 {
-                                commands
-                                    .entity(entity)
-                                    .insert(Buffer(ResourceType::Mineral, 1.0));
-                                commands.entity(ship_entity).insert(Ship {
-                                    health: ship.health + 20.0,
-                                    ..*ship
-                                });
-                                info!("Repairing ship: {} to {}", ship.health, ship.health + 20.0);
-                            }
+                        if resources.health < 100.0 {
+                            let new_health = (resources.health + 20.0).min(100.0);
+                            resources.health = new_health;
+                            commands
+                                .entity(parent.0)
+                                .insert(Buffer(source.0, source.1 - 1.0));
+                            info!("Repairing hull: {} to {}", resources.health, new_health);
                         }
                     }
                 }
@@ -713,7 +696,7 @@ fn pipe_switch_click(
                             let pipe = commands
                                 .spawn((pipe_bundle(coords), ChildOf(grid.entity)))
                                 .id();
-                            grid.get_building_mut(coords).unwrap().replace(pipe);
+                            grid.insert_building(coords, pipe);
                         }
                     }
                     commands.entity(child).despawn();

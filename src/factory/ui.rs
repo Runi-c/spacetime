@@ -8,7 +8,7 @@ use crate::{
 
 use super::machines::{Buffer, Inlet};
 
-pub fn plugin(app: &mut App) {
+pub(super) fn plugin(app: &mut App) {
     app.add_systems(Startup, spawn_ui.in_set(Sets::Spawn))
         .add_systems(
             Update,
@@ -28,9 +28,8 @@ fn spawn_ui(mut commands: Commands) {
         Name::new("Resource UI"),
         Node {
             position_type: PositionType::Absolute,
-            left: Val::Px(SCREEN_SIZE.x / 2.0),
-            top: Val::ZERO,
-            bottom: Val::ZERO,
+            width: Val::Percent(50.0),
+            height: Val::Percent(100.0),
             right: Val::ZERO,
             flex_direction: FlexDirection::Row,
             border: UiRect::left(Val::Px(1.0)),
@@ -95,13 +94,12 @@ fn spawn_ui(mut commands: Commands) {
         ],
     ));
     commands.spawn((
-        Name::new("Out of Time Marker"),
+        Name::new("Out of Time Container"),
         OutOfTimeThing,
         Node {
             position_type: PositionType::Absolute,
             left: Val::Px(SCREEN_SIZE.x / 2.0),
             top: Val::Px(50.0),
-            bottom: Val::ZERO,
             right: Val::ZERO,
             flex_direction: FlexDirection::Row,
             justify_content: JustifyContent::Center,

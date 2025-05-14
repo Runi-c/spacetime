@@ -3,7 +3,7 @@ use bevy_asset_loader::asset_collection::{AssetCollection, AssetCollectionApp};
 
 use crate::scheduling::Sets;
 
-pub fn plugin(app: &mut App) {
+pub(super) fn plugin(app: &mut App) {
     app.add_systems(Startup, spawn_music.in_set(Sets::Spawn))
         .init_collection::<Sounds>();
 }

@@ -2,13 +2,12 @@ use bevy::prelude::*;
 
 use crate::{scheduling::Sets, SCREEN_SIZE};
 
-pub fn plugin(app: &mut App) {
+pub(super) fn plugin(app: &mut App) {
     app.add_systems(Startup, spawn_tooltip.in_set(Sets::Spawn))
         .add_systems(Update, observe_tooltips.in_set(Sets::Input));
 }
 
 #[derive(Component, Clone)]
-#[require(Pickable)]
 pub struct Tooltip(pub String, pub Option<String>);
 
 #[derive(Resource)]

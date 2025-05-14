@@ -6,7 +6,7 @@ use bevy::{
 
 use crate::{layers::SpaceLayer, scheduling::Sets};
 
-pub fn plugin(app: &mut App) {
+pub(super) fn plugin(app: &mut App) {
     app.add_systems(Startup, setup_camera.in_set(Sets::Init))
         .add_systems(Update, resize_camera.in_set(Sets::Input));
 }
@@ -39,18 +39,14 @@ fn setup_camera(mut commands: Commands, window: Single<&Window, With<PrimaryWind
 }
 
 fn resize_camera(
-    windows: Query<&Window>,
     mut resize_events: EventReader<WindowResized>,
+    window: Single<&Window>,
     mut space_camera: Single<&mut Camera, With<SpaceCamera>>,
 ) {
-    for resize_event in resize_events.read() {
-        let window = windows.get(resize_event.window).unwrap();
+    for _ in resize_events.read() {
         space_camera.viewport = Some(Viewport {
             physical_position: UVec2::new(0, 0),
-            physical_size: UVec2::new(
-                window.resolution.physical_width() / 2,
-                window.resolution.physical_height(),
-            ),
+            physical_size: UVec2::new(window.physical_width() / 2, window.physical_height()),
             ..default()
         });
     }

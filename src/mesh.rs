@@ -19,7 +19,8 @@ pub trait MeshLyonExtensions {
         func: impl FnOnce(&mut NoAttributes<StrokeBuilder<'_>>),
         options: &StrokeOptions,
     ) -> Self;
-    fn stroke_polygon(points: &[Vec2], options: &StrokeOptions) -> Self;
+    fn stroke_polygon(points: &[Vec2], options: f32) -> Self;
+    fn from_buffers(buffers: VertexBuffers<Point2D<f32, UnknownUnit>, u16>) -> Self;
 }
 impl MeshLyonExtensions for Mesh {
     fn fill_with(func: impl FnOnce(&mut NoAttributes<FillBuilder<'_>>)) -> Self {
@@ -35,7 +36,7 @@ impl MeshLyonExtensions for Mesh {
 
         builder.build().unwrap();
 
-        mesh_from_buffers(geometry)
+        Self::from_buffers(geometry)
     }
     fn fill_polygon(points: &[Vec2]) -> Self {
         Self::fill_with(|builder| {
@@ -63,9 +64,9 @@ impl MeshLyonExtensions for Mesh {
 
         builder.build().unwrap();
 
-        mesh_from_buffers(geometry)
+        Self::from_buffers(geometry)
     }
-    fn stroke_polygon(points: &[Vec2], options: &StrokeOptions) -> Self {
+    fn stroke_polygon(points: &[Vec2], line_width: f32) -> Self {
         Self::stroke_with(
             |builder| {
                 let points = points
@@ -77,39 +78,41 @@ impl MeshLyonExtensions for Mesh {
                     closed: true,
                 });
             },
-            options,
+            &StrokeOptions::default().with_line_width(line_width),
         )
     }
-}
 
-fn mesh_from_buffers(buffers: VertexBuffers<Point2D<f32, UnknownUnit>, u16>) -> Mesh {
-    let mut mesh = Mesh::new(
-        PrimitiveTopology::TriangleList,
-        RenderAssetUsages::RENDER_WORLD,
-    );
-    let vertices = buffers
-        .vertices
-        .iter()
-        .map(|v| vec3(v.x, v.y, 0.0))
-        .collect::<Vec<_>>();
-    let rect = buffers
-        .vertices
-        .into_iter()
-        .fold(Rect::EMPTY, |rect, v| rect.union_point(vec2(v.x, v.y)));
-    let center = rect.center();
-    let size = rect.size();
-    let scale = 1.0 / size.x.max(size.y);
+    fn from_buffers(buffers: VertexBuffers<Point2D<f32, UnknownUnit>, u16>) -> Self {
+        let mut mesh = Mesh::new(
+            PrimitiveTopology::TriangleList,
+            RenderAssetUsages::default(),
+        );
+        let vertices = buffers
+            .vertices
+            .iter()
+            .map(|v| vec3(v.x, v.y, 0.0))
+            .collect::<Vec<_>>();
+        let rect = buffers
+            .vertices
+            .into_iter()
+            .fold(Rect::EMPTY, |rect, v| rect.union_point(vec2(v.x, v.y)));
+        let center = rect.center();
+        let size = rect.size();
+        let scale = 1.0 / size.x.max(size.y);
 
-    let uvs = vertices
-        .iter()
-        .map(|v| {
-            let uv = vec2(v.x, v.y) - center;
-            vec2(uv.x * scale + 0.5, uv.y * scale + 0.5)
-        })
-        .collect::<Vec<_>>();
-    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vertices);
-    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
-    mesh.insert_indices(Indices::U16(buffers.indices.clone()));
+        let uvs = vertices
+            .iter()
+            .map(|v| {
+                let uv = vec2(v.x, v.y) - center;
+                vec2(uv.x * scale + 0.5, uv.y * scale + 0.5)
+            })
+            .collect::<Vec<_>>();
+        let normals = vec![vec3(0.0, 0.0, 1.0); vertices.len()];
+        mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vertices);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+        mesh.insert_indices(Indices::U16(buffers.indices.clone()));
 
-    mesh
+        mesh
+    }
 }

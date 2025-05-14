@@ -4,7 +4,7 @@ use bevy::prelude::*;
 
 use crate::{resources::Resources, scheduling::Sets};
 
-pub fn plugin(app: &mut App) {
+pub(super) fn plugin(app: &mut App) {
     app.add_event::<FactoryTick>()
         .init_resource::<TimeScale>()
         .insert_resource(FactoryTimer(Timer::new(

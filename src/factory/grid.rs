@@ -18,7 +18,7 @@ use super::{
     tooltip::Tooltip,
 };
 
-pub fn plugin(app: &mut App) {
+pub(super) fn plugin(app: &mut App) {
     app.add_systems(Startup, setup_grid.in_set(Sets::Spawn))
         .add_systems(Update, apply_coords.in_set(Sets::PostUpdate));
 }
@@ -36,30 +36,32 @@ pub struct Grid {
 
 impl Grid {
     pub fn get_tile(&self, pos: IVec2) -> Option<Entity> {
-        let x = pos.x as usize;
-        let y = pos.y as usize;
-        if x < GRID_SIZE && y < GRID_SIZE {
-            self.tiles[y * GRID_SIZE + x]
-        } else {
-            None
-        }
+        self.try_index(pos).and_then(|index| self.tiles[index])
     }
 
     pub fn get_building(&self, pos: IVec2) -> Option<Entity> {
-        let x = pos.x as usize;
-        let y = pos.y as usize;
-        if x < GRID_SIZE && y < GRID_SIZE {
-            self.buildings[y * GRID_SIZE + x]
-        } else {
-            None
-        }
+        self.try_index(pos).and_then(|index| self.buildings[index])
     }
 
-    pub fn get_building_mut(&mut self, pos: IVec2) -> Option<&mut Option<Entity>> {
-        let x = pos.x as usize;
-        let y = pos.y as usize;
-        if x < GRID_SIZE && y < GRID_SIZE {
-            Some(&mut self.buildings[y * GRID_SIZE + x])
+    pub fn insert_building(&mut self, pos: IVec2, entity: Entity) -> Option<Entity> {
+        self.try_index(pos).and_then(|index| {
+            let old = self.buildings[index];
+            self.buildings[index] = Some(entity);
+            old
+        })
+    }
+
+    pub fn remove_building(&mut self, pos: IVec2) -> Option<Entity> {
+        self.try_index(pos).and_then(|index| {
+            let old = self.buildings[index];
+            self.buildings[index] = None;
+            old
+        })
+    }
+
+    fn try_index(&self, pos: IVec2) -> Option<usize> {
+        if pos.x >= 0 && pos.y >= 0 && pos.x < GRID_SIZE as i32 && pos.y < GRID_SIZE as i32 {
+            Some((pos.y * GRID_SIZE as i32 + pos.x) as usize)
         } else {
             None
         }
@@ -190,7 +192,6 @@ pub fn setup_grid(
             }
             for y in [3, 6] {
                 let inlet = parent.spawn((
-                    Name::new("Mineral Inlet"),
                     Tooltip(
                         "Mineral Inlet".to_string(),
                         Some("Provides minerals to connected machines".to_string()),
@@ -210,7 +211,6 @@ pub fn setup_grid(
             }
             for y in [3, 6] {
                 let inlet = parent.spawn((
-                    Name::new("Gas Inlet"),
                     Tooltip(
                         "Gas Inlet".to_string(),
                         Some("Provides gas to connected machines".to_string()),
@@ -230,13 +230,11 @@ pub fn setup_grid(
             }
             for x in [3, 6] {
                 let outlet = parent.spawn((
-                    Name::new("Ammo Outlet"),
                     Tooltip(
                         "Ammo Outlet".to_string(),
                         Some("Accepts ammo for the ship's weapons".to_string()),
                     ),
                     outlet(
-                        ResourceType::Ammo,
                         ivec2(x, GRID_SIZE as i32 - 1),
                         Direction::Down,
                         materials.add(MetalDither {

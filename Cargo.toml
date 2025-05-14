@@ -3,7 +3,8 @@ name = "spacetime"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+dev = ["bevy/bevy_remote"]
 
 [dependencies]
 bevy = { version = "0.16.0", default-features = false, features = [
@@ -32,17 +33,15 @@ bevy = { version = "0.16.0", default-features = false, features = [
 ] }
 bevy_asset_loader = "0.23.0-rc.3"
 bitflags = "2.9.0"
-log = { version = "*", features = [
-    "max_level_debug",
-    "release_max_level_warn",
-] }
 lyon_tessellation = "1.0.15"
 parry2d = "0.20.1"
 rand = "0.8.5"
 getrandom = { version = "0.2.15", features = ["js"] }
 
+# Adds development features when running via "bevy run" using the Bevy CLI
 [package.metadata.bevy_cli.native.dev]
 features = [
+    "dev",
     "bevy/dynamic_linking",
     "bevy/file_watcher",
     "bevy/embedded_watcher",
