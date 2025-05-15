@@ -9,10 +9,10 @@ use crate::{
 use super::machines::{Buffer, Inlet};
 
 pub(super) fn plugin(app: &mut App) {
-    app.add_systems(Startup, spawn_ui.in_set(Sets::Spawn))
+    app.add_systems(Startup, ui_spawn.in_set(Sets::Spawn))
         .add_systems(
             Update,
-            (update_ui, hide_time_warning).in_set(Sets::PostUpdate),
+            (ui_update, ui_hide_time_warning).in_set(Sets::PostUpdate),
         );
 }
 
@@ -22,7 +22,7 @@ pub struct ResourceDisplay(pub ResourceType);
 #[derive(Component, Clone)]
 pub struct OutOfTimeThing;
 
-fn spawn_ui(mut commands: Commands) {
+fn ui_spawn(mut commands: Commands) {
     const DISPLAY_WIDTH: f32 = 120.0;
     commands.spawn((
         Name::new("Resource UI"),
@@ -115,7 +115,7 @@ fn spawn_ui(mut commands: Commands) {
     ));
 }
 
-fn hide_time_warning(
+fn ui_hide_time_warning(
     mut commands: Commands,
     query: Query<Entity, With<OutOfTimeThing>>,
     resources: Res<Resources>,
@@ -131,7 +131,7 @@ fn hide_time_warning(
     }
 }
 
-fn update_ui(
+fn ui_update(
     mut commands: Commands,
     resources: Res<Resources>,
     query: Query<(Entity, &ResourceDisplay)>,

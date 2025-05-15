@@ -4,7 +4,7 @@ use crate::{camera::UICamera, resources::Resources, scheduling::Sets};
 
 pub(super) fn plugin(app: &mut App) {
     app.add_systems(Update, restart_game.in_set(Sets::PreUpdate))
-        .add_observer(on_game_over);
+        .add_observer(game_over);
 }
 
 #[derive(Event)]
@@ -13,7 +13,7 @@ pub struct GameOver;
 #[derive(Component)]
 pub struct GameOverScreen;
 
-fn on_game_over(
+fn game_over(
     _trigger: Trigger<GameOver>,
     mut commands: Commands,
     ui_camera: Single<Entity, With<UICamera>>,
@@ -30,6 +30,7 @@ fn on_game_over(
             ..default()
         },
         children![(
+            Name::new("Gameover Text"),
             Node {
                 border: UiRect::all(Val::Px(2.0)),
                 ..default()

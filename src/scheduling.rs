@@ -10,6 +10,7 @@ pub(super) fn plugin(app: &mut App) {
                 Sets::Physics,
                 Sets::Collision,
                 Sets::Update,
+                Sets::Destroy,
                 Sets::PostUpdate,
             )
                 .chain(),
@@ -33,6 +34,8 @@ pub enum Sets {
     Collision,
     /// Used for miscellaneous entity updates
     Update,
+    /// Used for destroying entities based on updates this frame
+    Destroy,
     /// Used mainly for updating display components based on everything else this frame
     PostUpdate,
 }

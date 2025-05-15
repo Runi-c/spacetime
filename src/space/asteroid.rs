@@ -27,8 +27,8 @@ pub(super) fn plugin(app: &mut App) {
         Update,
         (
             asteroid_spawn_timer.in_set(Sets::PreUpdate),
-            collide_asteroid.in_set(Sets::Update),
-            (break_asteroid, display_asteroid_health).in_set(Sets::PostUpdate),
+            asteroid_collide.in_set(Sets::Update),
+            (asteroid_break, asteroid_display_health).in_set(Sets::PostUpdate),
         ),
     );
 }
@@ -66,18 +66,18 @@ fn asteroid_spawn_timer(
     }
     if let Some(timer) = timer.as_mut() {
         if timer.tick(time.delta()).just_finished() {
-            commands.run_system_cached(spawn_asteroid);
+            commands.run_system_cached(asteroid_spawn);
         }
     } else {
         timer.replace(Timer::new(
             Duration::from_secs_f32(5.0),
             TimerMode::Repeating,
         ));
-        commands.run_system_cached(spawn_asteroid);
+        commands.run_system_cached(asteroid_spawn);
     }
 }
 
-fn spawn_asteroid(
+fn asteroid_spawn(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<DitherMaterial>>,
@@ -110,7 +110,7 @@ fn spawn_asteroid(
     ));
 }
 
-fn collide_asteroid(
+fn asteroid_collide(
     mut commands: Commands,
     mut collision_events: EventReader<CollisionEvent>,
     mut particles: EventWriter<EmitParticles>,
@@ -151,7 +151,7 @@ fn collide_asteroid(
     }
 }
 
-fn break_asteroid(
+fn asteroid_break(
     mut commands: Commands,
     asteroids: Query<(Entity, &Transform, &Asteroid)>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -184,7 +184,7 @@ fn break_asteroid(
     }
 }
 
-fn display_asteroid_health(
+fn asteroid_display_health(
     asteroids: Query<(&Asteroid, &Children)>,
     material_handles: Query<&MeshMaterial2d<DitherMaterial>, With<ChildOf>>,
     mut materials: ResMut<Assets<DitherMaterial>>,

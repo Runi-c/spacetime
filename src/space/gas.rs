@@ -25,8 +25,9 @@ pub(super) fn plugin(app: &mut App) {
     app.add_systems(
         Update,
         (
-            succ_cloud.in_set(Sets::Update),
-            (gas_timer, gas_dissipate).in_set(Sets::PostUpdate),
+            gas_spawn_timer.in_set(Sets::PreUpdate),
+            gas_succ.in_set(Sets::Update),
+            gas_dissipate.in_set(Sets::PostUpdate),
         ),
     );
 }
@@ -36,7 +37,7 @@ pub struct GasCloud {
     pub remaining: f32,
 }
 
-fn gas_timer(
+fn gas_spawn_timer(
     mut commands: Commands,
     time: Res<Time>,
     mut timer: Local<Option<Timer>>,
@@ -102,7 +103,7 @@ fn spawn_cloud(
 #[derive(Component, Clone)]
 pub struct SuccSound;
 
-fn succ_cloud(
+fn gas_succ(
     mut commands: Commands,
     mut collision_events: EventReader<CollisionEvent>,
     clouds: Query<&GasCloud>,

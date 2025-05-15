@@ -7,15 +7,15 @@ use bevy::{
 use crate::{layers::SpaceLayer, scheduling::Sets};
 
 pub(super) fn plugin(app: &mut App) {
-    app.add_systems(Startup, setup_camera.in_set(Sets::Init))
-        .add_systems(Update, resize_camera.in_set(Sets::Input));
+    app.add_systems(Startup, camera_setup.in_set(Sets::Init))
+        .add_systems(Update, camera_resize.in_set(Sets::PreUpdate));
 }
 
 #[derive(Component, Clone)]
 #[require(Camera2d)]
 pub struct SpaceCamera;
 
-fn setup_camera(mut commands: Commands, window: Single<&Window, With<PrimaryWindow>>) {
+fn camera_setup(mut commands: Commands, window: Single<&Window, With<PrimaryWindow>>) {
     let resolution = window.physical_size();
 
     commands.spawn((
@@ -38,7 +38,7 @@ fn setup_camera(mut commands: Commands, window: Single<&Window, With<PrimaryWind
     ));
 }
 
-fn resize_camera(
+fn camera_resize(
     mut resize_events: EventReader<WindowResized>,
     window: Single<&Window>,
     mut space_camera: Single<&mut Camera, With<SpaceCamera>>,

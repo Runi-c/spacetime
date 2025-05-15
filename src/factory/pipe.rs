@@ -1,19 +1,17 @@
-use std::collections::HashSet;
-
 use bevy::{asset::weak_handle, prelude::*};
 
 use crate::{
     layers::FactoryLayer,
     materials::{Dither, DitherMaterial, SOLID_BLACK, SOLID_WHITE},
-    resources::ResourceType,
     scheduling::Sets,
     z_order::ZOrder,
 };
 
 use super::{
     camera::CursorPosition,
-    grid::{Direction, Grid, Tile, TileCoords, TILE_SIZE},
-    machines::{Buffer, FlowDirection, Machine, MachinePort},
+    grid::{Direction, Grid, TileCoords, TILE_SIZE},
+    machines::{FlowDirection, Machine, MachinePort},
+    pipe_network::InvalidateNetworks,
     shop::PickedUpItem,
     time::TimeScale,
 };
@@ -41,78 +39,36 @@ pub(super) fn plugin(app: &mut App) {
         PIPE_BRIDGE_INNER.id(),
         Rectangle::new(TILE_SIZE * 0.8 + 4.0, PIPE_SIZE).into(),
     );
-    app.register_type::<NetworkMembers>();
-    app.register_type::<InNetwork>();
-    app.register_type::<PipeNetwork>();
-    app.register_type::<MachinePort>();
-    app.add_event::<InvalidateNetworks>()
-        .add_systems(Startup, setup_pipe_materials.in_set(Sets::Init))
+
+    app.add_systems(Startup, pipe_setup_materials.in_set(Sets::Init))
         .add_systems(
             Update,
             (
-                draw_pipe.in_set(Sets::Input),
-                (connect_ports, connect_pipes, rebuild_networks)
-                    .chain()
-                    .in_set(Sets::Update),
-                (update_pipe_material, make_pipe_bridges, log_networks).in_set(Sets::PostUpdate),
+                pipe_draw.in_set(Sets::Input),
+                pipe_connect.in_set(Sets::Physics),
+                (pipe_update_material, pipe_make_bridges).in_set(Sets::PostUpdate),
             ),
-        );
-}
-
-#[derive(Resource)]
-pub struct PipeFlowMaterial(pub Handle<DitherMaterial>);
-
-fn setup_pipe_materials(mut commands: Commands, mut materials: ResMut<Assets<DitherMaterial>>) {
-    let material = materials.add(Dither {
-        fill: 0.01,
-        scale: 44.0,
-        ..default()
-    });
-    commands.insert_resource(PipeFlowMaterial(material));
+        )
+        .add_observer(pipe_cleanup_connections);
 }
 
 const PIPE_SIZE: f32 = TILE_SIZE * 0.6;
 
-#[derive(Component, Clone, Debug)]
-pub struct Pipe;
-
-#[derive(Component, Clone, Debug)]
-#[relationship(relationship_target = PipeFrom)]
-pub struct PipeTo(Entity);
-
-#[derive(Component, Clone, Debug)]
-#[relationship_target(relationship = PipeTo)]
-pub struct PipeFrom(Entity);
-
-#[derive(Reflect, Component, Debug)]
-pub struct PipeNetwork {
-    pub source: Entity,
-    pub resource: ResourceType,
-    pub sink: Option<Entity>,
-    pub material: Handle<DitherMaterial>,
+#[derive(Component, Clone, Default, Debug)]
+pub struct Pipe {
+    pub to: Option<Entity>,
+    pub from: Option<Entity>,
 }
-
-#[derive(Event)]
-pub struct InvalidateNetworks;
-
-#[derive(Reflect, Component, Clone, Debug)]
-#[relationship(relationship_target = NetworkMembers)]
-pub struct InNetwork(pub Entity);
-
-#[derive(Reflect, Component, Clone, Debug)]
-#[relationship_target(relationship = InNetwork)]
-pub struct NetworkMembers(Vec<Entity>);
 
 pub fn pipe_bundle(pos: IVec2) -> impl Bundle {
     (
         Name::new("Pipe"),
-        Pipe,
+        Pipe::default(),
         FactoryLayer,
         TileCoords(pos),
         ZOrder::PIPE,
         Mesh2d(PIPE_MESH),
         MeshMaterial2d(SOLID_WHITE),
-        RecalcBridges,
         children![(
             Name::new("Pipe Inner"),
             FactoryLayer,
@@ -123,14 +79,13 @@ pub fn pipe_bundle(pos: IVec2) -> impl Bundle {
     )
 }
 
-fn draw_pipe(
+fn pipe_draw(
     mut commands: Commands,
-    tiles: Query<&TileCoords, With<Tile>>,
-    pipes: Query<Entity, With<Pipe>>,
+    pipes: Query<&Pipe>,
     cursor_pos: CursorPosition,
     mut grid: ResMut<Grid>,
     buttons: Res<ButtonInput<MouseButton>>,
-    mut events: EventWriter<InvalidateNetworks>,
+    mut invalidate: EventWriter<InvalidateNetworks>,
     picked_up_item: Option<Res<PickedUpItem>>,
 ) {
     if !buttons.pressed(MouseButton::Left) && !buttons.pressed(MouseButton::Right) {
@@ -140,119 +95,74 @@ fn draw_pipe(
         return;
     }
     if let Some(tile_pos) = cursor_pos.tile() {
-        if let Some(tile_entity) = grid.get_tile(tile_pos) {
-            let coords = tiles.get(tile_entity).unwrap();
-            if buttons.pressed(MouseButton::Left) {
-                if grid.get_building(tile_pos).is_none() {
-                    info!("Drawing pipe at tile: {:?}", coords);
-                    let pipe = commands
-                        .spawn((pipe_bundle(tile_pos), ChildOf(grid.entity)))
-                        .id();
-                    grid.insert_building(tile_pos, pipe);
-                    events.write(InvalidateNetworks);
-                }
-            } else if buttons.pressed(MouseButton::Right) {
-                if let Some(building) = grid.get_building(tile_pos) {
-                    if pipes.contains(building) {
-                        info!("Removing pipe at tile: {:?}", coords);
-                        commands.entity(building).despawn();
-                        for dir in Direction::iter() {
-                            if let Some(neighbor) = grid.get_building(tile_pos + dir.as_ivec2()) {
-                                if pipes.contains(neighbor) {
-                                    commands.entity(neighbor).insert(RecalcBridges);
-                                }
-                            }
-                        }
-                        grid.remove_building(tile_pos);
-                        events.write(InvalidateNetworks);
-                    }
+        if grid.get_tile(tile_pos).is_some() {
+            let maybe_building = grid.get_building(tile_pos);
+            if buttons.pressed(MouseButton::Left) && maybe_building.is_none() {
+                info!("Drawing pipe at tile: {:?}", tile_pos);
+                let pipe = commands
+                    .spawn((pipe_bundle(tile_pos), ChildOf(grid.entity)))
+                    .id();
+                grid.insert_building(tile_pos, pipe);
+                invalidate.write(InvalidateNetworks);
+            } else if buttons.pressed(MouseButton::Right) && maybe_building.is_some() {
+                let building = maybe_building.unwrap();
+                if pipes.contains(building) {
+                    info!("Removing pipe at tile: {:?}", tile_pos);
+                    commands.entity(building).despawn();
+                    grid.remove_building(tile_pos);
+                    invalidate.write(InvalidateNetworks);
                 }
             }
         }
     }
 }
 
-fn connect_pipes(
-    mut commands: Commands,
-    added_pipes: Query<(Entity, &TileCoords), Added<Pipe>>,
-    connections: Query<(Option<&PipeTo>, Option<&PipeFrom>), With<Pipe>>,
-    ports: Query<(Entity, &MachinePort)>,
-    machines: Query<(&Machine, &Children)>,
-    mut grid: ResMut<Grid>,
+fn pipe_connect(
+    mut pipes: Query<(Entity, Mut<Pipe>)>,
+    coords: Query<&TileCoords>,
+    mut ports: Query<(Entity, &mut MachinePort)>,
+    machines: Query<&Children, With<Machine>>,
+    grid: ResMut<Grid>,
 ) {
-    let mut iter = added_pipes.iter();
-    if let Some((pipe, tile_pos)) = iter.next() {
-        let mut connected_to = false;
-        let mut connected_from = false;
+    let pipe_entities = pipes
+        .iter()
+        .filter(|(_, pipe)| pipe.is_changed())
+        .map(|(entity, _)| entity)
+        .collect::<Vec<_>>();
+    for pipe_entity in pipe_entities {
+        let pipe_coords = coords.get(pipe_entity).unwrap();
         for neighbor_dir in Direction::iter() {
-            if let Some(neighbor) = grid.get_building(tile_pos.0 + neighbor_dir.as_ivec2()) {
-                if let Ok((_, children)) = machines.get(neighbor) {
+            if let Some(neighbor) = grid.get_building(pipe_coords.0 + neighbor_dir.as_ivec2()) {
+                if let Ok(children) = machines.get(neighbor) {
                     let maybe_port = children
                         .iter()
                         .filter_map(|c| ports.get(c).ok())
                         .find(|(_, port)| port.side == neighbor_dir.flip());
-                    if let Some((neighbor, port)) = maybe_port {
-                        if !connected_to && port.flow == FlowDirection::Inlet {
-                            connected_to = true;
-                            commands.entity(pipe).insert(PipeTo(neighbor));
-                        } else if !connected_from && port.flow == FlowDirection::Outlet {
-                            connected_from = true;
-                            commands.entity(neighbor).insert(PipeTo(pipe));
+                    if let Some((neighbor, _)) = maybe_port {
+                        let (_, mut pipe) = pipes.get_mut(pipe_entity).unwrap();
+                        let (_, mut port) = ports.get_mut(neighbor).unwrap();
+                        if pipe.to.is_none() && port.flow == FlowDirection::Inlet {
+                            pipe.to = Some(neighbor);
+                            port.connected = Some(pipe_entity);
+                        } else if pipe.from.is_none() && port.flow == FlowDirection::Outlet {
+                            pipe.from = Some(neighbor);
+                            port.connected = Some(pipe_entity);
                         }
                     }
-                } else if let Ok((pipe_to, pipe_from)) = connections.get(neighbor) {
-                    if !connected_to && pipe_from.is_none() {
-                        connected_to = true;
-                        commands.entity(pipe).insert(PipeTo(neighbor));
-                    } else if !connected_from && pipe_to.is_none() {
-                        connected_from = true;
-                        commands.entity(neighbor).insert(PipeTo(pipe));
-                    }
-                }
-            }
-        }
-    }
-    for (pipe, coords) in iter {
-        // respawn other pipes so that only one connection happpens per frame
-        commands.entity(pipe).despawn();
-        let pipe = commands
-            .spawn((pipe_bundle(coords.0), ChildOf(grid.entity)))
-            .id();
-        grid.insert_building(coords.0, pipe);
-    }
-}
-
-fn connect_ports(
-    mut commands: Commands,
-    added_ports: Query<(Entity, &MachinePort, &ChildOf), Added<MachinePort>>,
-    machines: Query<(&TileCoords, &Children), With<Machine>>,
-    ports: Query<&MachinePort>,
-    grid: Res<Grid>,
-) {
-    for (port_entity, port, child_of) in added_ports.iter() {
-        info!("Connecting port: {:?}", port);
-        if let Ok((coords, _)) = machines.get(child_of.parent()) {
-            info!("Port coords: {:?}", coords);
-            if let Some(neighbor) = grid.get_building(coords.0 + port.side.as_ivec2()) {
-                info!("Neighbor: {:?}", neighbor);
-                if let Ok((_, children)) = machines.get(neighbor) {
-                    info!("Neighbor children: {:?}", children);
-                    // neighbor is a machine
-                    let maybe_port =
-                        children
-                            .iter()
-                            .filter_map(|c| ports.get(c).ok())
-                            .find(|nbr_port| {
-                                info!("Neighbor port: {:?}", nbr_port);
-                                port.side == nbr_port.side.flip() && port.flow != nbr_port.flow
-                            });
-                    if let Some(port) = maybe_port {
-                        info!("Connecting ports: {:?} -> {:?}", port_entity, port);
-                        if port.flow == FlowDirection::Inlet {
-                            commands.entity(port_entity).insert(PipeTo(neighbor));
-                        } else if port.flow == FlowDirection::Outlet {
-                            commands.entity(neighbor).insert(PipeTo(port_entity));
-                        }
+                } else if pipes.contains(neighbor) {
+                    let [(_, mut pipe), (_, mut nbr_pipe)] =
+                        pipes.get_many_mut([pipe_entity, neighbor]).unwrap();
+                    if pipe.to.is_some_and(|e| e == neighbor)
+                        || pipe.from.is_some_and(|e| e == neighbor)
+                    {
+                        // already connected
+                        continue;
+                    } else if pipe.to.is_none() && nbr_pipe.from.is_none() {
+                        pipe.to = Some(neighbor);
+                        nbr_pipe.from = Some(pipe_entity);
+                    } else if pipe.from.is_none() && nbr_pipe.to.is_none() {
+                        pipe.from = Some(neighbor);
+                        nbr_pipe.to = Some(pipe_entity);
                     }
                 }
             }
@@ -262,53 +172,67 @@ fn connect_ports(
 
 #[derive(Component, Clone)]
 pub struct PipeBridge;
-#[derive(Component, Clone)]
-pub struct RecalcBridges;
 
-fn make_pipe_bridges(
+fn pipe_make_bridges(
     mut commands: Commands,
+    pipes: Query<(Entity, &Pipe, &TileCoords, &Children), Changed<Pipe>>,
     bridges: Query<&PipeBridge>,
-    pipes: Query<
-        (
-            Entity,
-            &TileCoords,
-            Option<&PipeTo>,
-            Option<&PipeFrom>,
-            &Children,
-        ),
-        Or<(Changed<PipeTo>, Changed<PipeFrom>, With<RecalcBridges>)>,
-    >,
     ports: Query<&ChildOf, With<MachinePort>>,
-    coords_q: Query<&TileCoords>,
+    coords: Query<&TileCoords>,
     flow_material: Res<PipeFlowMaterial>,
-) {
-    for (pipe, coords, maybe_to, maybe_from, children) in pipes.iter() {
-        for child in children.iter() {
+) -> Result {
+    for (pipe_entity, pipe, pipe_coords, pipe_children) in pipes.iter() {
+        for child in pipe_children.iter() {
             if bridges.contains(child) {
                 commands.entity(child).despawn();
             }
         }
         let mut bridges = vec![];
-        if let Some(to) = maybe_to {
-            bridges.push((false, to.0));
+        if let Some(to) = pipe.to {
+            bridges.push((false, to));
         }
-        if let Some(from) = maybe_from {
-            bridges.push((true, from.0));
+        if let Some(from) = pipe.from {
+            bridges.push((true, from));
         }
         for (flip, entity) in bridges {
-            let nbr = if let Ok(parent) = ports.get(entity) {
-                parent.parent()
+            let nbr = if let Ok(child_of) = ports.get(entity) {
+                child_of.parent()
             } else {
                 entity
             };
-            let nbr_coords = coords_q.get(nbr).unwrap();
-            let dir = coords.direction_to(nbr_coords);
+            let nbr_coords = coords.get(nbr)?;
+            let dir = pipe_coords.direction_to(nbr_coords);
             commands.spawn((
                 pipe_bridge(flip, dir, flow_material.0.clone()),
-                ChildOf(pipe),
+                ChildOf(pipe_entity),
             ));
         }
-        commands.entity(pipe).remove::<RecalcBridges>();
+    }
+
+    Ok(())
+}
+
+fn pipe_cleanup_connections(
+    trigger: Trigger<OnRemove, Pipe>,
+    mut pipes: Query<&mut Pipe>,
+    mut ports: Query<&mut MachinePort>,
+) {
+    let target = trigger.target();
+    let pipe = pipes.get(target).unwrap();
+    let (to, from) = (pipe.to, pipe.from);
+    if let Some(to) = to {
+        if let Ok(mut pipe) = pipes.get_mut(to) {
+            pipe.from = None;
+        } else if let Ok(mut port) = ports.get_mut(to) {
+            port.connected = None;
+        }
+    }
+    if let Some(from) = from {
+        if let Ok(mut pipe) = pipes.get_mut(from) {
+            pipe.to = None;
+        } else if let Ok(mut port) = ports.get_mut(from) {
+            port.connected = None;
+        }
     }
 }
 
@@ -340,7 +264,19 @@ pub fn pipe_bridge(
     )
 }
 
-fn update_pipe_material(
+#[derive(Resource)]
+pub struct PipeFlowMaterial(pub Handle<DitherMaterial>);
+
+fn pipe_setup_materials(mut commands: Commands, mut materials: ResMut<Assets<DitherMaterial>>) {
+    let material = materials.add(Dither {
+        fill: 0.01,
+        scale: 44.0,
+        ..default()
+    });
+    commands.insert_resource(PipeFlowMaterial(material));
+}
+
+fn pipe_update_material(
     material: Res<PipeFlowMaterial>,
     time: Res<Time>,
     timescale: Res<TimeScale>,
@@ -348,107 +284,5 @@ fn update_pipe_material(
 ) {
     if let Some(material) = materials.get_mut(&material.0) {
         material.settings.offset.x -= time.delta_secs() * timescale.0 * 10.0;
-    }
-}
-
-fn rebuild_networks(
-    mut commands: Commands,
-    mut events: EventReader<InvalidateNetworks>,
-    networks: Query<Entity, With<PipeNetwork>>,
-    machines: Query<(&TileCoords, &Buffer, &Children), With<Machine>>,
-    ports: Query<(Entity, &ChildOf, &MachinePort)>,
-    pipe_q: Query<&TileCoords, With<Pipe>>,
-    pipe_chain: Query<&PipeTo, With<Pipe>>,
-    grid: Res<Grid>,
-) {
-    if events.is_empty() {
-        return;
-    }
-    events.clear();
-    info!("Rebuilding pipe networks");
-    for network in networks.iter() {
-        commands.entity(network).despawn();
-    }
-    let mut networks = vec![];
-    for (port_entity, child_of, port) in ports.iter() {
-        if port.flow == FlowDirection::Inlet {
-            continue;
-        }
-        let parent = child_of.parent();
-        if !machines.contains(parent) {
-            continue;
-        }
-        let (coords, buffer, _) = machines.get(child_of.parent()).unwrap();
-        let coords = coords.0 + port.side.as_ivec2();
-        let mut sink = None;
-        let mut members = vec![port_entity];
-        if let Some(building) = grid.get_building(coords) {
-            if pipe_q.contains(building) {
-                // neighbor is pipe
-                members.push(building);
-                let mut visited = HashSet::new();
-                let pipes = pipe_chain
-                    .iter_ancestors::<PipeTo>(building)
-                    .take_while(|pipe| visited.insert(*pipe))
-                    .collect::<Vec<_>>();
-                if !pipes.is_empty() {
-                    let last = *pipes.last().unwrap();
-                    if ports.contains(last) {
-                        sink = Some(last);
-                    }
-                    members.extend(pipes);
-                }
-            } else if let Ok((_, _, children)) = machines.get(building) {
-                // neighbor is machine
-                let maybe_port = children
-                    .iter()
-                    .filter_map(|c| ports.get(c).ok())
-                    .filter(|(_, _, p)| p.flow == FlowDirection::Inlet)
-                    .find(|(_, _, nbr_port)| nbr_port.side == port.side.flip());
-                if let Some((nbr_port_e, _, _)) = maybe_port {
-                    sink = Some(nbr_port_e);
-                    members.push(nbr_port_e);
-                }
-            }
-        }
-        networks.push((port_entity, buffer.0, sink, members));
-    }
-
-    for (source, resource, sink, members) in networks {
-        let network = commands
-            .spawn((
-                Name::new("Pipe Network"),
-                PipeNetwork {
-                    source,
-                    resource,
-                    sink,
-                    material: Handle::default(),
-                },
-            ))
-            .id();
-        commands.insert_batch(
-            members
-                .iter()
-                .map(|e| (*e, InNetwork(network)))
-                .collect::<Vec<_>>(),
-        );
-    }
-}
-
-fn log_networks(
-    networks: Query<&PipeNetwork, Added<PipeNetwork>>,
-    child_of: Query<&ChildOf>,
-    names: Query<&Name>,
-) {
-    for network in networks.iter() {
-        let source = names
-            .get(child_of.get(network.source).unwrap().parent())
-            .unwrap();
-        let sink = if let Some(sink) = network.sink {
-            names.get(child_of.get(sink).unwrap().parent()).unwrap()
-        } else {
-            &Name::new("None")
-        };
-        info!("Pipe network: {} -> {}", source.as_str(), sink.as_str());
     }
 }

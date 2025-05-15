@@ -8,14 +8,14 @@ use super::{
     gas::GasCloud,
     particles::Particle,
     pickup::Pickup,
-    ship::{spawn_ship, Ship, ShipBullet, ShipRocket},
+    ship::{ship_spawn, Ship, ShipBullet, ShipRocket},
 };
 
 pub(super) fn plugin(app: &mut App) {
-    app.add_observer(on_restart_space);
+    app.add_observer(space_restart);
 }
 
-fn on_restart_space(
+fn space_restart(
     _trigger: Trigger<RestartGame>,
     mut commands: Commands,
     asteroids: Query<Entity, With<Asteroid>>,
@@ -55,5 +55,5 @@ fn on_restart_space(
     for entity in particles.iter() {
         commands.entity(entity).despawn();
     }
-    commands.run_system_cached(spawn_ship);
+    commands.run_system_cached(ship_spawn);
 }

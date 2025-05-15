@@ -1,29 +1,22 @@
 use bevy::prelude::*;
 
 use crate::{
-    factory::{
-        grid::Direction,
-        pipe::{pipe_bundle, InvalidateNetworks},
-    },
-    layers::FactoryLayer,
-    materials::DitherMaterial,
-    scheduling::Sets,
-    sounds::Sounds,
-    z_order::ZOrder,
-    SCREEN_SIZE,
+    layers::FactoryLayer, materials::DitherMaterial, scheduling::Sets, sounds::Sounds,
+    z_order::ZOrder, SCREEN_SIZE,
 };
 
 use super::{
     camera::CursorPosition,
     grid::{Grid, TileCoords, TILE_SIZE},
     machines::{ammo_factory, hull_fixer, pipe_switch, rocket_factory},
-    pipe::{Pipe, PipeFlowMaterial},
+    pipe::PipeFlowMaterial,
+    pipe_network::InvalidateNetworks,
 };
 
 pub(super) fn plugin(app: &mut App) {
-    app.add_systems(Startup, setup_shop.in_set(Sets::Spawn))
+    app.add_systems(Startup, shop_spawn.in_set(Sets::Spawn))
         .add_systems(Update, shop_item_drag.in_set(Sets::Input))
-        .add_observer(observe_shop_items)
+        .add_observer(shop_item_observers)
         .add_observer(shop_layout);
 }
 
@@ -44,7 +37,7 @@ pub struct ShopOrder(pub usize);
 #[derive(Resource)]
 pub struct PickedUpItem(pub Entity);
 
-fn setup_shop(
+fn shop_spawn(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<DitherMaterial>>,
@@ -81,7 +74,7 @@ fn setup_shop(
     commands.trigger(InvalidateShopLayout);
 }
 
-fn observe_shop_items(trigger: Trigger<OnAdd, ShopItem>, mut commands: Commands) {
+fn shop_item_observers(trigger: Trigger<OnAdd, ShopItem>, mut commands: Commands) {
     commands
         .entity(trigger.target())
         .observe(shop_item_drag_start)
@@ -108,7 +101,6 @@ fn shop_item_drag_end(
     mut commands: Commands,
     mut invalidate: EventWriter<InvalidateNetworks>,
     cursor_pos: CursorPosition,
-    pipes: Query<&Pipe>,
     shop_items: Query<(&ShopItem, Option<&TileCoords>)>,
     mut grid: ResMut<Grid>,
     shop: Res<Shop>,
@@ -149,18 +141,6 @@ fn shop_item_drag_end(
             commands
                 .entity(spawned)
                 .insert((TileCoords(tile_pos), ChildOf(grid.entity)));
-            for dir in Direction::iter() {
-                if let Some(pipe) = grid
-                    .get_building(tile_pos + dir.as_ivec2())
-                    .filter(|e| pipes.contains(*e))
-                {
-                    commands.entity(pipe).despawn();
-                    let pipe = commands
-                        .spawn((pipe_bundle(tile_pos + dir.as_ivec2()), ChildOf(grid.entity)))
-                        .id();
-                    grid.insert_building(tile_pos + dir.as_ivec2(), pipe);
-                }
-            }
         }
     }
     if let Some(coords) = coords {

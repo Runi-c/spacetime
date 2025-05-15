@@ -19,7 +19,7 @@ use super::{
 };
 
 pub(super) fn plugin(app: &mut App) {
-    app.add_systems(Startup, setup_grid.in_set(Sets::Spawn))
+    app.add_systems(Startup, grid_spawn.in_set(Sets::Spawn))
         .add_systems(Update, apply_coords.in_set(Sets::PostUpdate));
 }
 
@@ -30,8 +30,8 @@ pub const GRID_WIDTH: f32 = GRID_SIZE as f32 * TILE_SIZE;
 #[derive(Resource)]
 pub struct Grid {
     pub entity: Entity,
-    pub tiles: [Option<Entity>; GRID_SIZE * GRID_SIZE],
-    pub buildings: [Option<Entity>; GRID_SIZE * GRID_SIZE],
+    tiles: [Option<Entity>; GRID_SIZE * GRID_SIZE],
+    buildings: [Option<Entity>; GRID_SIZE * GRID_SIZE],
 }
 
 impl Grid {
@@ -66,6 +66,110 @@ impl Grid {
             None
         }
     }
+}
+
+pub fn grid_spawn(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<DitherMaterial>>,
+    flow_material: Res<PipeFlowMaterial>,
+) {
+    let mut tiles = [None; GRID_SIZE * GRID_SIZE];
+    let mut buildings = [None; GRID_SIZE * GRID_SIZE];
+    let mesh = meshes.add(Mesh::stroke_with(
+        |builder| {
+            builder.add_rectangle(
+                &Box2D::zero().inflate(TILE_SIZE * 0.5, TILE_SIZE * 0.5),
+                Winding::Positive,
+            );
+        },
+        &StrokeOptions::default().with_line_width(1.0),
+    ));
+    let grid = commands
+        .spawn((
+            Name::new("Grid"),
+            FactoryLayer,
+            Transform::from_xyz(GRID_WIDTH * -0.5, GRID_WIDTH * -0.5, 0.0),
+            Visibility::default(),
+        ))
+        .with_children(|parent| {
+            for y in 1..GRID_SIZE - 1 {
+                for x in 1..GRID_SIZE - 1 {
+                    let tile = parent.spawn((
+                        Name::new("Tile"),
+                        Tile,
+                        FactoryLayer,
+                        TileCoords(ivec2(x as i32, y as i32)),
+                        ZOrder::TILE,
+                        Mesh2d(mesh.clone()),
+                        MeshMaterial2d(SOLID_WHITE),
+                    ));
+                    tiles[y * GRID_SIZE + x] = Some(tile.id());
+                }
+            }
+            for y in [3, 6] {
+                let inlet = parent.spawn((
+                    Tooltip(
+                        "Mineral Inlet".to_string(),
+                        Some("Provides minerals to connected machines".to_string()),
+                    ),
+                    inlet(
+                        ResourceType::Mineral,
+                        ivec2(0, y),
+                        Direction::Right,
+                        materials.add(RockyDither {
+                            fill: 0.6,
+                            scale: 40.0,
+                        }),
+                        flow_material.0.clone(),
+                    ),
+                ));
+                buildings[y as usize * GRID_SIZE + 0] = Some(inlet.id());
+            }
+            for y in [3, 6] {
+                let inlet = parent.spawn((
+                    Tooltip(
+                        "Gas Inlet".to_string(),
+                        Some("Provides gas to connected machines".to_string()),
+                    ),
+                    inlet(
+                        ResourceType::Gas,
+                        ivec2(GRID_SIZE as i32 - 1, y),
+                        Direction::Left,
+                        materials.add(GassyDither {
+                            fill: 0.8,
+                            scale: 40.0,
+                        }),
+                        flow_material.0.clone(),
+                    ),
+                ));
+                buildings[y as usize * GRID_SIZE + GRID_SIZE - 1] = Some(inlet.id());
+            }
+            for x in [3, 6] {
+                let outlet = parent.spawn((
+                    Tooltip(
+                        "Ammo Outlet".to_string(),
+                        Some("Accepts ammo for the ship's weapons".to_string()),
+                    ),
+                    outlet(
+                        ivec2(x, GRID_SIZE as i32 - 1),
+                        Direction::Down,
+                        materials.add(MetalDither {
+                            fill: 0.2,
+                            scale: 40.0,
+                        }),
+                        flow_material.0.clone(),
+                    ),
+                ));
+                buildings[(GRID_SIZE - 1) * GRID_SIZE + x as usize] = Some(outlet.id());
+            }
+        })
+        .id();
+    commands.insert_resource(Grid {
+        entity: grid,
+        tiles,
+        buildings,
+    });
 }
 
 #[derive(Component, Clone, Debug)]
@@ -149,108 +253,4 @@ impl Direction {
             Direction::Down => Direction::Up,
         }
     }
-}
-
-pub fn setup_grid(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<DitherMaterial>>,
-    flow_material: Res<PipeFlowMaterial>,
-) {
-    let mut tiles = [None; GRID_SIZE * GRID_SIZE];
-    let mut buildings = [None; GRID_SIZE * GRID_SIZE];
-    let mesh = meshes.add(Mesh::stroke_with(
-        |builder| {
-            builder.add_rectangle(
-                &Box2D::zero().inflate(TILE_SIZE * 0.5, TILE_SIZE * 0.5),
-                Winding::Positive,
-            );
-        },
-        &StrokeOptions::default().with_line_width(1.0),
-    ));
-    let grid = commands
-        .spawn((
-            Name::new("Grid"),
-            FactoryLayer,
-            Transform::from_xyz(GRID_WIDTH * -0.5, GRID_WIDTH * -0.5, 0.0),
-            InheritedVisibility::VISIBLE,
-        ))
-        .with_children(|parent| {
-            for y in 1..GRID_SIZE - 1 {
-                for x in 1..GRID_SIZE - 1 {
-                    let tile = parent.spawn((
-                        Name::new("Tile"),
-                        Tile,
-                        FactoryLayer,
-                        TileCoords(ivec2(x as i32, y as i32)),
-                        ZOrder::TILE,
-                        Mesh2d(mesh.clone()),
-                        MeshMaterial2d(SOLID_WHITE),
-                    ));
-                    tiles[y * GRID_SIZE + x] = Some(tile.id());
-                }
-            }
-            for y in [3, 6] {
-                let inlet = parent.spawn((
-                    Tooltip(
-                        "Mineral Inlet".to_string(),
-                        Some("Provides minerals to connected machines".to_string()),
-                    ),
-                    inlet(
-                        ResourceType::Mineral,
-                        ivec2(0, y),
-                        Direction::Right,
-                        materials.add(RockyDither {
-                            fill: 0.6,
-                            scale: 40.0,
-                        }),
-                        flow_material.0.clone(),
-                    ),
-                ));
-                buildings[y as usize * GRID_SIZE + 0] = Some(inlet.id());
-            }
-            for y in [3, 6] {
-                let inlet = parent.spawn((
-                    Tooltip(
-                        "Gas Inlet".to_string(),
-                        Some("Provides gas to connected machines".to_string()),
-                    ),
-                    inlet(
-                        ResourceType::Gas,
-                        ivec2(GRID_SIZE as i32 - 1, y),
-                        Direction::Left,
-                        materials.add(GassyDither {
-                            fill: 0.8,
-                            scale: 40.0,
-                        }),
-                        flow_material.0.clone(),
-                    ),
-                ));
-                buildings[y as usize * GRID_SIZE + GRID_SIZE - 1] = Some(inlet.id());
-            }
-            for x in [3, 6] {
-                let outlet = parent.spawn((
-                    Tooltip(
-                        "Ammo Outlet".to_string(),
-                        Some("Accepts ammo for the ship's weapons".to_string()),
-                    ),
-                    outlet(
-                        ivec2(x, GRID_SIZE as i32 - 1),
-                        Direction::Down,
-                        materials.add(MetalDither {
-                            fill: 0.2,
-                            scale: 40.0,
-                        }),
-                        flow_material.0.clone(),
-                    ),
-                ));
-                buildings[(GRID_SIZE - 1) * GRID_SIZE + x as usize] = Some(outlet.id());
-            }
-        })
-        .id();
-    commands.insert_resource(Grid {
-        entity: grid,
-        tiles,
-        buildings,
-    });
 }

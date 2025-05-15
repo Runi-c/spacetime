@@ -62,10 +62,10 @@ pub struct DespawnOutOfBounds;
 fn physics_move(
     mut commands: Commands,
     time: Res<Time>,
-    camera: Query<(&Camera, &Projection), With<SpaceCamera>>,
+    camera: Single<(&Camera, &Projection), With<SpaceCamera>>,
     mut query: Query<(Entity, &mut Transform, &Velocity, Has<DespawnOutOfBounds>)>,
 ) {
-    let (camera, projection) = camera.single().unwrap();
+    let (camera, projection) = *camera;
     for (entity, mut transform, velocity, despawn) in query.iter_mut() {
         transform.translation += velocity.0.extend(0.0) * time.delta_secs();
 

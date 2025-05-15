@@ -13,8 +13,8 @@ pub(super) fn plugin(app: &mut App) {
     app.add_event::<EmitParticles>().add_systems(
         Update,
         (
-            spawn_particles.in_set(Sets::Update),
-            tick_particles.in_set(Sets::PostUpdate),
+            particle_emit.in_set(Sets::Update),
+            particle_tick.in_set(Sets::PostUpdate),
         ),
     );
 }
@@ -29,7 +29,7 @@ pub struct EmitParticles {
     pub count: usize,
 }
 
-pub fn spawn_particles(
+pub fn particle_emit(
     mut commands: Commands,
     mut reader: EventReader<EmitParticles>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -56,7 +56,7 @@ pub fn spawn_particles(
     }
 }
 
-pub fn tick_particles(
+pub fn particle_tick(
     time: Res<Time>,
     mut commands: Commands,
     mut query: Query<(Entity, &mut Particle, &mut Transform)>,

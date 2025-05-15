@@ -5,14 +5,14 @@ use crate::{layers::FactoryLayer, scheduling::Sets, SCREEN_SIZE};
 use super::grid::{GRID_WIDTH, TILE_SIZE};
 
 pub(super) fn plugin(app: &mut App) {
-    app.add_systems(Startup, setup_camera.in_set(Sets::Init));
+    app.add_systems(Startup, camera_setup.in_set(Sets::Init));
 }
 
 #[derive(Component, Clone)]
 #[require(Camera2d)]
 pub struct FactoryCamera;
 
-fn setup_camera(mut commands: Commands) {
+fn camera_setup(mut commands: Commands) {
     commands.spawn((
         Name::new("Factory Camera"),
         FactoryCamera,

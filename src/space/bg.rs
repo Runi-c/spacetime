@@ -9,10 +9,10 @@ use crate::{
 };
 
 pub(super) fn plugin(app: &mut App) {
-    app.add_systems(Startup, spawn_space_bg.in_set(Sets::Spawn));
+    app.add_systems(Startup, space_bg_spawn.in_set(Sets::Spawn));
 }
 
-fn spawn_space_bg(
+fn space_bg_spawn(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<DitherMaterial>>,

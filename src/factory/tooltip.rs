@@ -3,8 +3,8 @@ use bevy::prelude::*;
 use crate::{scheduling::Sets, SCREEN_SIZE};
 
 pub(super) fn plugin(app: &mut App) {
-    app.add_systems(Startup, spawn_tooltip.in_set(Sets::Spawn))
-        .add_systems(Update, observe_tooltips.in_set(Sets::Input));
+    app.add_systems(Startup, tooltip_spawn.in_set(Sets::Spawn))
+        .add_systems(Update, tooltip_observers.in_set(Sets::Input));
 }
 
 #[derive(Component, Clone)]
@@ -17,7 +17,7 @@ struct ActiveTooltip {
     description: Entity,
 }
 
-fn spawn_tooltip(mut commands: Commands) {
+fn tooltip_spawn(mut commands: Commands) {
     let container = commands
         .spawn((
             Name::new("Tooltip Container"),
@@ -60,7 +60,7 @@ fn spawn_tooltip(mut commands: Commands) {
     });
 }
 
-fn observe_tooltips(
+fn tooltip_observers(
     mut commands: Commands,
     tooltip_query: Query<Entity, Added<Tooltip>>,
     names: Query<&Name>,
@@ -69,12 +69,12 @@ fn observe_tooltips(
         info!("Tooltip entity: {:?}", names.get(entity));
         commands
             .entity(entity)
-            .observe(update_tooltip)
-            .observe(remove_tooltip);
+            .observe(tooltip_update)
+            .observe(tooltip_hide);
     }
 }
 
-fn update_tooltip(
+fn tooltip_update(
     trigger: Trigger<Pointer<Move>>,
     mut commands: Commands,
     tooltips: Query<&Tooltip>,
@@ -136,7 +136,7 @@ fn update_tooltip(
     }
 }
 
-fn remove_tooltip(
+fn tooltip_hide(
     _trigger: Trigger<Pointer<Out>>,
     mut commands: Commands,
     active_tooltip: Res<ActiveTooltip>,

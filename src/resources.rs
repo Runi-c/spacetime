@@ -43,7 +43,7 @@ impl Default for Resources {
             health: 100.0,
             minerals: 10.0,
             gas: 0.0,
-            time: 0.0,
+            time: 30.0,
             ammo: 20.0,
             rockets: 0.0,
         }

@@ -13,13 +13,12 @@ use crate::{
 };
 
 use super::{
-    asteroid::Asteroid,
     bounds::ScreenBounds,
     collision::{Collider, CollisionEvent},
     particles::EmitParticles,
     physics::{DespawnOutOfBounds, Rotation, Velocity},
     pickup::time_pickup,
-    ship::{Ship, ShipBullet},
+    ship::Ship,
 };
 
 pub(super) fn plugin(app: &mut App) {
@@ -27,7 +26,7 @@ pub(super) fn plugin(app: &mut App) {
         Update,
         (
             enemy_move.in_set(Sets::Input),
-            (enemy_shoot, enemy_timer, collide_bullet).in_set(Sets::Update),
+            (enemy_shoot, enemy_spawn_timer, enemy_bullet_collide).in_set(Sets::Update),
             enemy_die.in_set(Sets::PostUpdate),
         ),
     );
@@ -47,10 +46,10 @@ pub struct AttackCooldown(pub f32);
 #[derive(Component, Clone)]
 pub struct EnemyLivingSound;
 
-fn enemy_timer(
+fn enemy_spawn_timer(
     mut commands: Commands,
-    mut timer: Local<Option<Timer>>,
     enemies: Query<&Enemy>,
+    mut timer: Local<Option<Timer>>,
     time: Res<Time>,
 ) {
     let enemy_count = enemies.iter().count();
@@ -60,17 +59,17 @@ fn enemy_timer(
     let timer = timer
         .get_or_insert_with(|| Timer::new(Duration::from_secs_f32(15.0), TimerMode::Repeating));
     if timer.tick(time.delta()).just_finished() {
-        commands.run_system_cached(spawn_enemy);
+        commands.run_system_cached(enemy_spawn);
     }
 }
 
-fn spawn_enemy(
+fn enemy_spawn(
     mut commands: Commands,
+    enemy_living_sound: Option<Single<&AudioSink, With<EnemyLivingSound>>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<DitherMaterial>>,
-    bounds: ScreenBounds,
-    enemy_living_sound: Query<&AudioSink, With<EnemyLivingSound>>,
     sounds: Res<Sounds>,
+    bounds: ScreenBounds,
 ) {
     const OUTER: f32 = 30.0;
     const INNER: f32 = 20.0;
@@ -105,7 +104,10 @@ fn spawn_enemy(
             Target(bounds.random_outside() * 0.8),
         ))
         .id();
-    if enemy_living_sound.is_empty() {
+
+    if let Some(sound) = enemy_living_sound {
+        sound.play();
+    } else {
         commands.spawn((
             Name::new("Enemy Living Sound"),
             EnemyLivingSound,
@@ -113,20 +115,16 @@ fn spawn_enemy(
             PlaybackSettings::LOOP,
             ChildOf(enemy),
         ));
-    } else {
-        for sink in enemy_living_sound.iter() {
-            sink.play();
-        }
     }
 }
 
 fn enemy_move(
-    time: Res<Time>,
+    mut enemies: Query<(&mut Transform, &mut Target, &mut Velocity), With<Enemy>>,
     ship: Single<(&Transform, &Velocity), (With<Ship>, Without<Enemy>)>,
-    mut query: Query<(&mut Transform, &mut Target, &mut Velocity), With<Enemy>>,
     bounds: ScreenBounds,
+    time: Res<Time>,
 ) {
-    for (mut transform, mut target, mut velocity) in query.iter_mut() {
+    for (mut transform, mut target, mut velocity) in enemies.iter_mut() {
         let diff = target.0 - transform.translation.truncate();
         velocity.0 = velocity.0.lerp(diff.normalize() * 300.0, time.delta_secs());
         if diff.length() < 10.0 {
@@ -142,15 +140,18 @@ fn enemy_move(
     }
 }
 
+#[derive(Component, Clone)]
+pub struct EnemyBullet(pub f32);
+
 fn enemy_shoot(
     mut commands: Commands,
+    enemies: Query<(Entity, &Transform, Option<&AttackCooldown>), With<Enemy>>,
     time: Res<Time>,
-    query: Query<(Entity, &Transform, Option<&AttackCooldown>), With<Enemy>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<DitherMaterial>>,
     sounds: Res<Sounds>,
 ) {
-    for (entity, transform, cooldown) in query.iter() {
+    for (entity, transform, cooldown) in enemies.iter() {
         if let Some(cooldown) = cooldown {
             if cooldown.0 > 0.0 {
                 commands
@@ -188,16 +189,39 @@ fn enemy_shoot(
     }
 }
 
+fn enemy_bullet_collide(
+    mut commands: Commands,
+    mut collision_events: EventReader<CollisionEvent>,
+    bullets: Query<&EnemyBullet>,
+    ship: Single<Entity, With<Ship>>,
+    mut resources: ResMut<Resources>,
+    mut particle_writer: EventWriter<EmitParticles>,
+) {
+    for event in collision_events.read() {
+        if let Ok(bullet) = bullets.get(event.entity_a) {
+            if event.entity_b == *ship {
+                // Handle collision between bullet and ship
+                commands.entity(event.entity_a).despawn();
+                resources.add(ResourceType::Health, -bullet.0);
+                particle_writer.write(EmitParticles {
+                    position: event.contact.point_b,
+                    count: 3,
+                });
+            }
+        }
+    }
+}
+
 fn enemy_die(
     mut commands: Commands,
-    query: Query<(Entity, &Enemy, &Transform)>,
-    mut particle_writer: EventWriter<EmitParticles>,
+    enemies: Query<(Entity, &Enemy, &Transform)>,
     enemy_living_sound: Query<&AudioSink, With<EnemyLivingSound>>,
-    sounds: Res<Sounds>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<DitherMaterial>>,
+    sounds: Res<Sounds>,
+    mut particle_writer: EventWriter<EmitParticles>,
 ) {
-    for (entity, enemy, transform) in query.iter() {
+    for (entity, enemy, transform) in enemies.iter() {
         if enemy.health <= 0.0 {
             commands.entity(entity).despawn();
             particle_writer.write(EmitParticles {
@@ -219,58 +243,6 @@ fn enemy_die(
                 AudioPlayer::new(sounds.enemy_die.clone()),
                 PlaybackSettings::DESPAWN,
             ));
-        }
-    }
-}
-
-#[derive(Component, Clone)]
-pub struct EnemyBullet(pub f32);
-
-fn collide_bullet(
-    mut commands: Commands,
-    mut collision_events: EventReader<CollisionEvent>,
-    mut particle_writer: EventWriter<EmitParticles>,
-    ship: Single<Entity, With<Ship>>,
-    bullets: Query<&EnemyBullet>,
-    enemies: Query<&Enemy>,
-    ship_bullets: Query<&ShipBullet>,
-    asteroids: Query<&Asteroid>,
-    mut resources: ResMut<Resources>,
-) {
-    for event in collision_events.read() {
-        if let Ok(bullet) = bullets.get(event.entity_a) {
-            if event.entity_b == *ship {
-                // Handle collision between bullet and ship
-                commands.entity(event.entity_a).despawn();
-                resources.add(ResourceType::Health, -bullet.0);
-                particle_writer.write(EmitParticles {
-                    position: event.contact.point_b,
-                    count: 3,
-                });
-            }
-        }
-        if ship_bullets.contains(event.entity_a) {
-            if let Ok(enemy) = enemies.get(event.entity_b) {
-                // Handle collision between ship bullet and enemy
-                commands.entity(event.entity_a).despawn();
-                commands.entity(event.entity_b).insert(Enemy {
-                    health: enemy.health - 15.0,
-                });
-                particle_writer.write(EmitParticles {
-                    position: event.contact.point_b,
-                    count: 3,
-                });
-            } else if let Ok(asteroid) = asteroids.get(event.entity_b) {
-                // Handle collision between ship bullet and asteroid
-                commands.entity(event.entity_a).despawn();
-                commands.entity(event.entity_b).insert(Asteroid {
-                    health: asteroid.health - 15.0,
-                });
-                particle_writer.write(EmitParticles {
-                    position: event.contact.point_b,
-                    count: 3,
-                });
-            }
         }
     }
 }

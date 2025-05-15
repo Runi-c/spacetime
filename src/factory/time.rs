@@ -11,7 +11,7 @@ pub(super) fn plugin(app: &mut App) {
             Duration::from_secs(1),
             TimerMode::Repeating,
         )))
-        .add_systems(Update, consume_time.in_set(Sets::PostUpdate));
+        .add_systems(Update, time_consume.in_set(Sets::PostUpdate));
 }
 
 #[derive(Resource)]
@@ -20,7 +20,7 @@ pub struct FactoryTimer(Timer);
 #[derive(Event)]
 pub struct FactoryTick;
 
-fn consume_time(
+fn time_consume(
     mut timer: ResMut<FactoryTimer>,
     time: Res<Time>,
     mut resources: ResMut<Resources>,

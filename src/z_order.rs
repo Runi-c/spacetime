@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 
 pub(super) fn plugin(app: &mut App) {
-    app.add_observer(on_insert_z_order);
+    app.add_observer(z_order_apply);
 }
 
 #[derive(Component, Clone)]
@@ -21,11 +21,9 @@ impl ZOrder {
     pub const SHOP: Self = Self(20.0);
 }
 
-fn on_insert_z_order(
-    trigger: Trigger<OnInsert, ZOrder>,
-    mut query: Query<(&ZOrder, &mut Transform)>,
-) {
+fn z_order_apply(trigger: Trigger<OnInsert, ZOrder>, mut query: Query<(&ZOrder, &mut Transform)>) {
     let entity = trigger.target();
-    let (z_order, mut transform) = query.get_mut(entity).unwrap();
-    transform.translation.z = z_order.0;
+    if let Ok((z_order, mut transform)) = query.get_mut(entity) {
+        transform.translation.z = z_order.0;
+    }
 }

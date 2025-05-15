@@ -4,6 +4,7 @@ mod camera;
 mod grid;
 mod machines;
 mod pipe;
+mod pipe_network;
 mod restart;
 mod shop;
 mod time;
@@ -16,6 +17,7 @@ pub(super) fn plugin(app: &mut App) {
         grid::plugin,
         machines::plugin,
         pipe::plugin,
+        pipe_network::plugin,
         restart::plugin,
         shop::plugin,
         time::plugin,
